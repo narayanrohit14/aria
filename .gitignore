@@ -1,0 +1,17 @@
+__pycache__/
+.venv/
+*.pyc
+.env
+
+node_modules/
+.next/
+.env.local
+
+.DS_Store
+
+.cursor/
+.vscode/
+
+# Sample data files (too large for git)
+backend/data/sample-data/*.csv
+backend/data/sample-data/*.json

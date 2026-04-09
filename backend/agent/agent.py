@@ -1,0 +1,425 @@
+"""
+A.R.I.A. — Audit Risk & Insights Agent
+LiveKit voice agent for DTCC Internal Audit demonstration.
+
+Architecture:
+  - LiveKit handles STT → LLM → TTS pipeline
+  - WebSocket server (port 8765) streams subtitles to the UI
+  - aria_data_ingestion.py pre-loads the sample dataset into context
+  - Intent router decides when to inject data vs. pass straight to LLM
+"""
+
+from dotenv import load_dotenv
+import requests
+import asyncio
+import websockets
+import json
+
+from livekit import agents, rtc
+from livekit.agents import AgentServer, AgentSession, Agent, room_io
+from livekit.plugins import noise_cancellation, silero
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
+
+from data_ingestion import load_audit_context, format_context_for_llm
+
+load_dotenv(".env.local")
+
+# Pre-load dataset once at startup
+AUDIT_CONTEXT = load_audit_context()
+AUDIT_CONTEXT_STR = format_context_for_llm(AUDIT_CONTEXT)
+
+tx_summary = AUDIT_CONTEXT.get("transaction_summary", {})
+RISK_LEVEL = tx_summary.get("risk_level", "UNKNOWN")
+FRAUD_RATE = tx_summary.get("fraud_rate_pct", 0)
+FAILURE_RATE = tx_summary.get("failure_rate_pct", 0)
+
+
+# ─────────────────────────────────────────────
+# WEBSOCKET SUBTITLE SERVER
+# ─────────────────────────────────────────────
+
+connected_clients: set = set()
+_subtitle_server_started = False
+
+
+async def _subtitle_handler(websocket):
+    print("[ARIA] UI client connected for subtitles.")
+    connected_clients.add(websocket)
+    try:
+        await websocket.wait_closed()
+    finally:
+        connected_clients.discard(websocket)
+        print("[ARIA] UI client disconnected.")
+
+
+async def _run_subtitle_server():
+    async with websockets.serve(_subtitle_handler, "localhost", 8765):
+        print("[ARIA] ✅ Subtitle WebSocket running on ws://localhost:8765")
+        await asyncio.Future()  # keep running forever
+
+
+async def send_subtitle(text: str):
+    """Broadcast a subtitle string to all connected UI clients."""
+    if connected_clients:
+        await asyncio.gather(
+            *[c.send(text) for c in connected_clients],
+            return_exceptions=True,
+        )
+
+
+async def clear_subtitle():
+    """Signal the UI to fade out the current subtitle."""
+    await send_subtitle("__CLEAR__")
+
+
+# ─────────────────────────────────────────────
+# FREE / PUBLIC API HELPERS
+# ─────────────────────────────────────────────
+
+def _get_market_snapshot() -> str:
+    """Fetch basic macro indicators from FRED (Federal Reserve) — no key needed for these."""
+    try:
+        # VIX proxy via Yahoo Finance (unofficial, robust for demos)
+        vix_url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d"
+        r = requests.get(vix_url, timeout=5,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        data = r.json()
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        latest_vix = round([v for v in closes if v is not None][-1], 2)
+        vix_signal = (
+            "elevated — indicating market stress"  if latest_vix > 25 else
+            "moderate — normal market conditions"  if latest_vix > 15 else
+            "low — indicating market calm"
+        )
+        return f"VIX (Volatility Index): {latest_vix} — {vix_signal}"
+    except Exception:
+        return "Market data temporarily unavailable."
+
+
+def _get_regulatory_headlines() -> str:
+    """Pull top financial/regulatory news via NewsAPI (free tier key from .env.local)."""
+    import os
+    api_key = os.getenv("NEWSAPI_KEY", "")
+    if not api_key:
+        return "No news API key configured (set NEWSAPI_KEY in .env.local)."
+    try:
+        url = (
+            f"https://newsapi.org/v2/top-headlines"
+            f"?category=business&language=en&pageSize=3&apiKey={api_key}"
+        )
+        r = requests.get(url, timeout=5)
+        articles = r.json().get("articles", [])
+        if not articles:
+            return "No headlines available at this time."
+        return " | ".join(a["title"] for a in articles[:3])
+    except Exception:
+        return "Regulatory news feed unavailable."
+
+
+# ─────────────────────────────────────────────
+# ARIA SYSTEM PROMPT
+# ─────────────────────────────────────────────
+
+ARIA_SYSTEM_PROMPT = f"""
+You are ARIA (pronounced Uh-Rye-Ah) — the Audit Risk & Insights Agent, an advanced AI assistant
+purpose-built for Internal Audit teams operating within financial market
+infrastructure environments.
+
+══════════════════════════════════════════════════════
+IDENTITY & MISSION
+══════════════════════════════════════════════════════
+You are the third line of defense — independent, objective, and analytical.
+Your mission is to support Internal Audit professionals by:
+  • Evaluating risk management effectiveness
+  • Assessing control design and operating effectiveness
+  • Identifying emerging enterprise and operational risks
+  • Generating structured audit findings and recommendations
+  • Supporting all phases of the Internal Audit lifecycle
+
+You serve both seasoned audit leaders (Chief Audit Executives, Managing Directors)
+and newer analysts encountering these concepts for the first time.
+Adapt your depth accordingly based on the question asked.
+
+══════════════════════════════════════════════════════
+INTERNAL AUDIT LIFECYCLE (your operating framework)
+══════════════════════════════════════════════════════
+You are fluent in all six phases:
+
+1. PLANNING
+   - Risk-based scoping and audit universe prioritization
+   - Defining objectives, scope, and testing approach
+   - Stakeholder kick-off alignment
+
+2. RISK ASSESSMENT
+   - Likelihood × Impact evaluation
+   - Risk assessment matrix methodology
+   - Inherent vs. residual risk distinction
+   - Prioritization of high-risk audit areas
+
+3. FIELDWORK
+   - Control design vs. operating effectiveness testing
+   - Sampling strategy and transaction testing
+   - Inquiry, observation, and evidence examination
+   - Computer-assisted audit techniques (CAATs) and data analytics
+
+4. ANALYSIS
+   - Root cause identification
+   - The 5Cs framework: Criteria / Condition / Cause / Consequence / Corrective Action
+   - Significance assessment: observation vs. material control weakness
+
+5. REPORTING
+   - Executive summary and board-ready communication
+   - Structured audit findings with management responses
+   - Prioritized recommendations with implementation timelines
+
+6. FOLLOW-UP
+   - Corrective action plan (CAP) tracking
+   - Re-testing and validation of remediation
+   - Escalation of repeat observations
+
+══════════════════════════════════════════════════════
+CORE AUDIT DOMAINS (your expertise areas)
+══════════════════════════════════════════════════════
+• Regulatory Compliance — AML, BSA, consumer protection, governance
+• Financial & Capital Risk — liquidity, interest rate risk, capital adequacy
+• Cybersecurity & IT Audit — system reliability, access controls, data protection
+• Model Risk & Validation — pricing models, stress testing, algorithmic bias
+• Fraud Detection & Prevention — anomaly detection, transaction monitoring
+• Operational Risk — settlement, reconciliation, processing failures
+• Third-Party & Vendor Risk — dependency mapping, control assessment
+• AI Governance & Emerging Technology Risk — responsible AI frameworks
+• Geopolitical & Macroeconomic Risk — systemic stress, market disruption
+
+══════════════════════════════════════════════════════
+PROFESSIONAL STANDARDS YOU ALIGN WITH
+══════════════════════════════════════════════════════
+• IIA International Professional Practices Framework (IPPF)
+• COSO Internal Control — Integrated Framework
+• NIST Cybersecurity Framework
+• ISO 31000 Risk Management
+
+══════════════════════════════════════════════════════
+HOW YOU STRUCTURE RESPONSES
+══════════════════════════════════════════════════════
+For risk and control questions, use:
+  OBSERVATION → RISK IMPLICATION → CONTROL CONSIDERATION → RECOMMENDATION
+
+For audit findings, use the 5Cs:
+  CRITERIA → CONDITION → CAUSE → CONSEQUENCE → CORRECTIVE ACTION
+
+For executive summaries, lead with:
+  Risk rating (High / Medium / Low) → Key finding → Business impact → Next step
+
+For introductory questions, explain clearly and build from first principles.
+
+══════════════════════════════════════════════════════
+TONE & COMMUNICATION STYLE
+══════════════════════════════════════════════════════
+VOICE FIRST — you are speaking aloud, not writing a report. Every response
+must sound natural when heard. Short sentences. No bullet lists spoken mid-answer.
+No section headers read out loud.
+
+WARMTH & CLARITY
+• Bright, approachable, and genuinely helpful — think "brilliant colleague"
+  not "formal report writer"
+• Encouraging with newer analysts; peer-level with senior leaders
+• Use precise technical terms, but follow each one with a plain-English gloss
+  the first time it appears — e.g. "residual risk, meaning the exposure that
+  remains after your controls are already in place"
+• Never condescending, never stiff
+
+CONCISENESS
+• Lead with the single most important point, then support it briefly
+• 2 to 4 sentences for simple questions; 5 to 8 for complex ones
+• Cut anything that does not add signal — no restating the question,
+  no filler phrases like "great question" or "certainly"
+• When a structured format like the 5Cs is needed, name it briefly
+  then move straight into the content without preamble
+
+ADAPTABILITY
+• Exploratory or basic question — explain from first principles,
+  conversationally, with one concrete example to anchor it
+• Technical or senior-level question — skip the basics, go straight
+  to nuance, implication, and recommended action
+• Match the energy of the question — quick factual ask gets a quick answer;
+  thoughtful strategic question gets a thoughtful response
+
+ALWAYS
+• Connect findings to action — what does this mean, and what should happen next
+• Be direct about uncertainty rather than hedging everything
+• Sound confident but not infallible
+
+══════════════════════════════════════════════════════
+CURRENT DATASET CONTEXT (loaded from sample data)
+══════════════════════════════════════════════════════
+You have access to a financial transaction dataset for audit analysis.
+Use this data when answering questions about fraud, settlement risk,
+transaction patterns, control gaps, or when generating audit findings.
+
+{AUDIT_CONTEXT_STR}
+
+Current portfolio risk level: {RISK_LEVEL}
+Fraud rate in population:     {FRAUD_RATE}%
+Transaction failure rate:     {FAILURE_RATE}%
+
+══════════════════════════════════════════════════════
+CONSTRAINTS
+══════════════════════════════════════════════════════
+• Never fabricate specific internal DTCC proprietary data
+• Use the loaded dataset context when data-specific questions arise
+• Be transparent when making assumptions
+• Maintain confidentiality-aware tone at all times
+• Do not break character — you are always ARIA
+""".strip()
+
+
+# ─────────────────────────────────────────────
+# INTENT ROUTER
+# ─────────────────────────────────────────────
+
+AUDIT_KEYWORDS = {
+    "planning":     ["plan", "scope", "universe", "kick", "objective"],
+    "risk":         ["risk", "assess", "likelihood", "impact", "exposure", "matrix"],
+    "fieldwork":    ["test", "sample", "fieldwork", "evidence", "observe", "caat"],
+    "analysis":     ["finding", "root cause", "5c", "five c", "condition", "criteria",
+                     "consequence", "corrective"],
+    "reporting":    ["report", "summary", "executive", "board", "communicate"],
+    "followup":     ["follow", "remediat", "cap", "corrective action", "retest"],
+    "fraud":        ["fraud", "suspicious", "anomaly", "flag", "detect", "aml", "bsa"],
+    "settlement":   ["settle", "fail", "reconcil", "break", "clear", "post-trade"],
+    "cyber":        ["cyber", "security", "access", "breach", "system", "it audit"],
+    "market":       ["market", "volatility", "vix", "rate", "macro", "economic"],
+    "data":         ["data", "transaction", "population", "sample", "dataset", "card"],
+    "regulatory":   ["regulat", "compliance", "sec", "finra", "law", "requirement"],
+}
+
+
+def _detect_intent(text: str) -> list[str]:
+    text_lower = text.lower()
+    intents = []
+    for intent, keywords in AUDIT_KEYWORDS.items():
+        if any(kw in text_lower for kw in keywords):
+            intents.append(intent)
+    return intents
+
+
+async def route_query(text: str, session: AgentSession):
+    """
+    Decides what additional context to inject before sending to the LLM.
+    All paths ultimately call session.generate_reply() so TTS fires normally.
+    """
+    intents = _detect_intent(text)
+    extra_context = ""
+
+    # Inject live market data for macro/market questions
+    if "market" in intents:
+        snapshot = _get_market_snapshot()
+        extra_context += f"\nLive Market Snapshot:\n{snapshot}\n"
+
+    # Inject transaction/card data summary for data-specific questions
+    if any(i in intents for i in ["data", "fraud", "settlement"]):
+        extra_context += f"\n{AUDIT_CONTEXT_STR}\n"
+
+    # Build enriched prompt
+    if extra_context:
+        prompt = (
+            f"The user asked: {text}\n\n"
+            f"Additional real-time context to inform your response:\n"
+            f"{extra_context}\n"
+            f"Respond as ARIA — analytical, structured, and audit-focused."
+        )
+    else:
+        prompt = text
+
+    response = await session.generate_reply(instructions=prompt)
+    await send_subtitle(str(response))
+    return response
+
+
+# ─────────────────────────────────────────────
+# ARIA AGENT CLASS
+# ─────────────────────────────────────────────
+
+class ARIAAssistant(Agent):
+    def __init__(self) -> None:
+        super().__init__(instructions=ARIA_SYSTEM_PROMPT)
+
+
+# ─────────────────────────────────────────────
+# LIVEKIT SESSION
+# ─────────────────────────────────────────────
+
+server = AgentServer()
+
+
+@server.rtc_session()
+async def aria_session(ctx: agents.JobContext):
+    global _subtitle_server_started
+
+    # Start WebSocket subtitle server once
+    if not _subtitle_server_started:
+        asyncio.create_task(_run_subtitle_server())
+        _subtitle_server_started = True
+
+    print(f"[ARIA] Session started — room: {ctx.room.name} | Risk level: {RISK_LEVEL}")
+
+    session = AgentSession(
+        stt="assemblyai/universal-streaming:en",
+        llm="openai/gpt-4.1-mini",
+        tts="cartesia/sonic-3:71a7ad14-091c-4e8e-a314-022ece01c121",
+        vad=silero.VAD.load(),
+        turn_detection=MultilingualModel(),
+    )
+
+    await session.start(
+        room=ctx.room,
+        agent=ARIAAssistant(),
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=lambda params: (
+                    noise_cancellation.BVCTelephony()
+                    if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+                    else noise_cancellation.BVC()
+                ),
+            ),
+        ),
+    )
+
+    # Opening greeting — session.say() speaks the text verbatim
+    opening = (
+        f"Hello audit team member! I'm ARIA, which stands for Audit Risk and Insights Agent. "
+        f"I'm here to support you across the full internal audit lifecycle — "
+        f"from risk assessment and control testing, through to drafting findings and executive reporting. "
+        f"I've got the dataset loaded and ready to go. "
+        f"Based on what I'm seeing, the portfolio is currently sitting at a {RISK_LEVEL} risk level overall. "
+        f"Whether you're a seasoned auditor or just getting started, feel free to ask me anything. "
+        f"What would you like to dig into today?"
+    )
+    await session.say(opening)
+    await send_subtitle(opening)
+
+    # Event handler for user transcriptions
+    @session.on("transcription")
+    def on_transcription(event):
+        user_text = getattr(event, "text", "")
+        if user_text:
+            print(f"[ARIA] User: {user_text}")
+            asyncio.create_task(route_query(user_text, session))
+
+    # Optional: mirror agent speech directly to subtitle
+    @session.on("agent_speech")
+    def on_agent_speech(event):
+        speech_text = getattr(event, "text", "")
+        if speech_text:
+            asyncio.create_task(send_subtitle(speech_text))
+
+    # Keep session alive
+    await asyncio.Future()
+
+
+# ─────────────────────────────────────────────
+# ENTRY POINT
+# ─────────────────────────────────────────────
+
+if __name__ == "__main__":
+    agents.cli.run_app(server)
