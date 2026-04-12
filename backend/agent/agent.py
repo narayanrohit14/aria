@@ -4,25 +4,27 @@ LiveKit voice agent for DTCC Internal Audit demonstration.
 
 Architecture:
   - LiveKit handles STT → LLM → TTS pipeline
-  - WebSocket server (port 8765) streams subtitles to the UI
+  - FastAPI WebSocket gateway streams subtitles to the UI
   - aria_data_ingestion.py pre-loads the sample dataset into context
   - Intent router decides when to inject data vs. pass straight to LLM
 """
 
+import os
 from dotenv import load_dotenv
 import requests
 import asyncio
-import websockets
 import json
+import httpx
 
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, Agent, room_io
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from data_ingestion import load_audit_context, format_context_for_llm
+from aria_data_ingestion import load_audit_context, format_context_for_llm
 
 load_dotenv(".env.local")
+ARIA_API_URL = os.getenv("ARIA_API_URL", "http://localhost:8000")
 
 # Pre-load dataset once at startup
 AUDIT_CONTEXT = load_audit_context()
@@ -34,37 +36,16 @@ FRAUD_RATE = tx_summary.get("fraud_rate_pct", 0)
 FAILURE_RATE = tx_summary.get("failure_rate_pct", 0)
 
 
-# ─────────────────────────────────────────────
-# WEBSOCKET SUBTITLE SERVER
-# ─────────────────────────────────────────────
-
-connected_clients: set = set()
-_subtitle_server_started = False
-
-
-async def _subtitle_handler(websocket):
-    print("[ARIA] UI client connected for subtitles.")
-    connected_clients.add(websocket)
+async def send_subtitle(text: str, room: str = "default"):
     try:
-        await websocket.wait_closed()
-    finally:
-        connected_clients.discard(websocket)
-        print("[ARIA] UI client disconnected.")
-
-
-async def _run_subtitle_server():
-    async with websockets.serve(_subtitle_handler, "localhost", 8765):
-        print("[ARIA] ✅ Subtitle WebSocket running on ws://localhost:8765")
-        await asyncio.Future()  # keep running forever
-
-
-async def send_subtitle(text: str):
-    """Broadcast a subtitle string to all connected UI clients."""
-    if connected_clients:
-        await asyncio.gather(
-            *[c.send(text) for c in connected_clients],
-            return_exceptions=True,
-        )
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{ARIA_API_URL}/ws/broadcast",
+                json={"text": text, "room": room},
+                timeout=2.0,
+            )
+    except Exception:
+        pass
 
 
 async def clear_subtitle():
@@ -354,13 +335,6 @@ server = AgentServer()
 
 @server.rtc_session()
 async def aria_session(ctx: agents.JobContext):
-    global _subtitle_server_started
-
-    # Start WebSocket subtitle server once
-    if not _subtitle_server_started:
-        asyncio.create_task(_run_subtitle_server())
-        _subtitle_server_started = True
-
     print(f"[ARIA] Session started — room: {ctx.room.name} | Risk level: {RISK_LEVEL}")
 
     session = AgentSession(
@@ -396,7 +370,7 @@ async def aria_session(ctx: agents.JobContext):
         f"What would you like to dig into today?"
     )
     await session.say(opening)
-    await send_subtitle(opening)
+    await send_subtitle(opening, ctx.room.name)
 
     # Event handler for user transcriptions
     @session.on("transcription")
@@ -411,7 +385,7 @@ async def aria_session(ctx: agents.JobContext):
     def on_agent_speech(event):
         speech_text = getattr(event, "text", "")
         if speech_text:
-            asyncio.create_task(send_subtitle(speech_text))
+            asyncio.create_task(send_subtitle(speech_text, ctx.room.name))
 
     # Keep session alive
     await asyncio.Future()

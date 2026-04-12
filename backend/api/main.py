@@ -1,9 +1,24 @@
 import logging
 import os
+from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
+from backend.api.database import engine
+from backend.api.routers.analyze import router as analyze_router
+from backend.api.routers.findings import router as findings_router
+from backend.api.routers.health import router as health_router
+from backend.api.routers.sessions import router as sessions_router
+from backend.api.routers.ws import router as ws_router
+from backend.data.aria_data_ingestion import load_audit_context
+
+
+ARTIFACTS_MODEL_PATH = (
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))) + "/ml/artifacts/fraud_classifier.pkl"
+)
 
 
 def configure_logging() -> logging.Logger:
@@ -18,21 +33,43 @@ def configure_logging() -> logging.Logger:
 
 
 logger = configure_logging()
-connected_clients: set[WebSocket] = set()
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    logger.info("Starting aria-api")
-    print("ARIA API startup")
+async def lifespan(app: FastAPI):
+    environment = os.getenv("ARIA_ENV", "development")
+    logger.info("ARIA API starting...")
+    logger.info("╔══════════════════════════════════════╗")
+    logger.info("║  A.R.I.A. API — v0.1.0             ║")
+    logger.info("║  Environment: %-22s║", environment)
+    logger.info("║  Docs: http://localhost:8000/docs   ║")
+    logger.info("╚══════════════════════════════════════╝")
+
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+        logger.info("Database connection check passed")
+    except Exception as exc:
+        logger.warning("Database connection check failed: %s", exc)
+
+    model_exists = os.path.exists(ARTIFACTS_MODEL_PATH)
+    logger.info("Fraud model artifact %s", "found" if model_exists else "not found")
+
+    try:
+        load_audit_context()
+        logger.info("Audit context loaded")
+    except Exception as exc:
+        logger.warning("Audit context load failed: %s", exc)
+
+    app.state.started_at = datetime.utcnow()
+    logger.info("ARIA API ready")
     try:
         yield
     finally:
-        logger.info("Shutting down aria-api")
-        print("ARIA API shutdown")
+        logger.info("ARIA API shutting down")
 
 
-app = FastAPI(title="ARIA API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ARIA API", version="0.1.0", lifespan=lifespan, redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,45 +79,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "aria-api", "version": "0.1.0"}
-
-
-@app.get("/api/v1/status")
-async def status() -> dict[str, str]:
-    return {"environment": os.getenv("ARIA_ENV", "development")}
-
-
-@app.websocket("/ws/subtitles")
-async def subtitles_websocket(websocket: WebSocket) -> None:
-    await websocket.accept()
-    connected_clients.add(websocket)
-    logger.info("WebSocket client connected. Total clients: %s", len(connected_clients))
-
-    try:
-        while True:
-            message = await websocket.receive_text()
-            disconnected_clients: list[WebSocket] = []
-
-            for client in connected_clients:
-                if client is websocket:
-                    continue
-                try:
-                    await client.send_text(message)
-                except RuntimeError:
-                    disconnected_clients.append(client)
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("Failed to broadcast message: %s", exc)
-                    disconnected_clients.append(client)
-
-            for client in disconnected_clients:
-                connected_clients.discard(client)
-    except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
-    except Exception as exc:  # pragma: no cover
-        logger.warning("WebSocket connection error: %s", exc)
-    finally:
-        connected_clients.discard(websocket)
-        logger.info("WebSocket client removed. Total clients: %s", len(connected_clients))
+app.include_router(health_router)
+app.include_router(sessions_router)
+app.include_router(findings_router)
+app.include_router(analyze_router)
+app.include_router(ws_router)
