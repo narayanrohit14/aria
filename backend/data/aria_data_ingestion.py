@@ -11,7 +11,7 @@ Verified schemas (from actual uploaded files):
                     yearly_income, total_debt, credit_score, num_credit_cards
   mcc_codes.json  — { "mcc_code": "description", ... }  (flat string values)
   transactions_data.csv — (schema inferred at runtime; common fields tried)
-  train_fraud_labels.json — { "transaction_id": 0|1, ... }
+  train_fraud_labels.json — { "target": { "transaction_id": "Yes"|"No", ... } }
 """
 
 import os
@@ -319,7 +319,7 @@ def analyze_transactions(transactions: list[dict], fraud_labels: dict) -> dict:
             error_types[errors] += 1
 
         if str(tx_id) in fraud_labels:
-            if str(fraud_labels[str(tx_id)]).strip() in ("1", "true", "yes", "fraud", "Yes"):
+            if str(fraud_labels[str(tx_id)]).strip() == "Yes":
                 fraud_count += 1
 
         mcc = _get(tx, "mcc", "MCC", "merchant_category_code")
@@ -405,7 +405,8 @@ def load_audit_context() -> dict:
     cards        = _load_csv(CARDS_FILE)
     users        = _load_csv(USERS_FILE)
     mcc_codes    = _load_json(MCC_FILE)
-    fraud_labels = _load_json(FRAUD_FILE)
+    raw = _load_json(FRAUD_FILE)
+    fraud_labels = raw.get("target", raw) if isinstance(raw, dict) else {}
 
     tx_summary   = analyze_transactions(transactions, fraud_labels)
     card_summary = analyze_cards(cards)

@@ -1,0 +1,15 @@
+{
+  "cv_f1_mean": 0.5800408998459521,
+  "cv_f1_std": 0.014092587365113858,
+  "cv_precision_mean": 0.5250054959376402,
+  "cv_precision_std": 0.03151834230244962,
+  "cv_recall_mean": 0.6511013215859031,
+  "cv_recall_std": 0.02791714452467816,
+  "cv_roc_auc_mean": 0.9917152163146401,
+  "cv_roc_auc_std": 0.002407721196459461,
+  "fraud_rate": 0.003387887778829134,
+  "n_samples": 335017,
+  "n_fraud_cases": 1135,
+  "n_folds": 5,
+  "cv_optimal_threshold_mean": 0.49000000000000005
+}
