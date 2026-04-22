@@ -3,21 +3,42 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --green: #4bb875;
+  --green-dim: rgba(75, 184, 117, 0.55);
+  --green-faint: rgba(75, 184, 117, 0.08);
+  --bg-primary: #0a0f0a;
+  --bg-card: #0f1a0f;
+  --border-subtle: #1a2e1a;
+  --text-primary: #e0ffe8;
+  --text-muted: rgba(224, 255, 232, 0.55);
+  --font-mono: "Share Tech Mono", monospace;
+  --font-sans: "Rajdhani", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg-primary);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
 }
 
 @layer utilities {
