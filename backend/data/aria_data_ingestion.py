@@ -335,11 +335,18 @@ def analyze_transactions(transactions: list[dict], fraud_labels: dict) -> dict:
     top_errors = sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:5]
 
     score = 0
-    if fraud_rate   > 5:   score += 45
-    elif fraud_rate > 2:   score += 25
-    if failure_rate > 10:  score += 30
-    elif failure_rate > 5: score += 15
-    if avg_amount   > 5000: score += 15
+    if fraud_rate > 5:
+        score += 45
+    elif fraud_rate > 2:
+        score += 25
+
+    if failure_rate > 10:
+        score += 30
+    elif failure_rate > 5:
+        score += 15
+
+    if avg_amount > 5000:
+        score += 15
 
     risk_level = "HIGH" if score >= 55 else "MEDIUM" if score >= 25 else "LOW"
 

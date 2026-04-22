@@ -1,7 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class SessionCreate(BaseModel):
@@ -99,4 +103,4 @@ class SubtitleMessage(BaseModel):
     type: Literal["subtitle", "clear", "risk_update"]
     text: Optional[str] = None
     risk_level: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)

@@ -13,7 +13,6 @@ import os
 from dotenv import load_dotenv
 import requests
 import asyncio
-import json
 import httpx
 
 from livekit import agents, rtc

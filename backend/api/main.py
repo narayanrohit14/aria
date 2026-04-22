@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Audit context load failed: %s", exc)
 
-    app.state.started_at = datetime.utcnow()
+    app.state.started_at = datetime.now(timezone.utc)
     logger.info("ARIA API ready")
     try:
         yield

@@ -1,0 +1,14 @@
+{
+  "name": "aria-frontend",
+  "source": {
+    "type": "dockerfile",
+    "dockerfile": "infra/docker/Dockerfile.frontend.prod"
+  },
+  "deploy": {
+    "startCommand": "node server.js"
+  },
+  "variables": {
+    "PORT": "3000",
+    "NODE_ENV": "production"
+  }
+}

@@ -15,3 +15,7 @@ node_modules/
 # Sample data files (too large for git)
 backend/data/sample-data/*.csv
 backend/data/sample-data/*.json
+
+# ML artifacts
+ml/artifacts/*.pkl
+ml/mlruns/

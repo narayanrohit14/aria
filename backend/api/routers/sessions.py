@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -92,7 +92,7 @@ async def end_session(
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found.")
 
-        session.ended_at = datetime.utcnow()
+        session.ended_at = datetime.now(timezone.utc)
         await db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid session ID.") from exc

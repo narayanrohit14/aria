@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -66,8 +66,8 @@ async def health(db: AsyncSession = Depends(get_db)) -> HealthResponse:
 
 @router.get("/api/v1/status")
 async def status(request: Request) -> dict:
-    started_at = getattr(request.app.state, "started_at", datetime.utcnow())
-    now = datetime.utcnow()
+    started_at = getattr(request.app.state, "started_at", datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
     uptime_seconds = int((now - started_at).total_seconds())
     return {
         "status": "ok",
