@@ -1,33 +1,19 @@
-# Remove from top of file:
-import matplotlib
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 from __future__ import annotations
 
+import os
 import json
 import math
-from datetime import datetime
 from pathlib import Path
+from datetime import datetime
 
 import joblib
-import matplotlib
-import mlflow
-import mlflow.xgboost
 import numpy as np
 import pandas as pd
-from sklearn.metrics import (
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
-from sklearn.model_selection import StratifiedKFold
 from xgboost import XGBClassifier
-
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+import mlflow
+import mlflow.xgboost
 
 
 ML_DIR = Path(__file__).resolve().parents[1]
@@ -40,6 +26,11 @@ PREDICTION_THRESHOLD = 0.35
 
 
 def train_fraud_classifier(X, y, experiment_name: str = "fraud-classifier", run_name: str | None = None) -> dict:
+    def train_fraud_classifier(X, y):
+    # Lazy imports — only needed during training, not inference
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
     X = pd.DataFrame(X).copy()
     y = pd.Series(y).astype(int).copy()
     positive_count = int((y == 1).sum())
@@ -152,8 +143,6 @@ def train_fraud_classifier(X, y, experiment_name: str = "fraud-classifier", run_
         )
         final_model.fit(X, y, verbose=False)
         mlflow.xgboost.log_model(final_model, artifact_path="model")
-        import matplotlib.pyplot as plt
-        import seaborn as sns
         importance = pd.Series(
             final_model.feature_importances_,
             index=X.columns,
