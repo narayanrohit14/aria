@@ -19,3 +19,7 @@ backend/data/sample-data/*.json
 # ML artifacts
 ml/artifacts/*.pkl
 ml/mlruns/
+!ml/artifacts/fraud_classifier.pkl
+!ml/artifacts/optimal_threshold.json
+!ml/artifacts/evaluation_report.json
+!ml/artifacts/risk_scorer_metadata.json
