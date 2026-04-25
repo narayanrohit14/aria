@@ -22,8 +22,10 @@ USER aria
 
 EXPOSE 8000
 
-CMD alembic -c backend/api/alembic.ini upgrade head && \
+CMD cd /app/backend/api && \
+    alembic upgrade head && \
+    cd /app && \
     uvicorn backend.api.main:app \
       --host 0.0.0.0 \
-      --port 8000 \
+      --port ${PORT:-8000} \
       --workers 2
