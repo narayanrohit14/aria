@@ -26,7 +26,6 @@ PREDICTION_THRESHOLD = 0.35
 
 
 def train_fraud_classifier(X, y, experiment_name: str = "fraud-classifier", run_name: str | None = None) -> dict:
-    def train_fraud_classifier(X, y):
     # Lazy imports — only needed during training, not inference
     import matplotlib.pyplot as plt
     import seaborn as sns
