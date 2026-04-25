@@ -15,7 +15,7 @@ COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY backend/ ./backend/
-COPY ml/artifacts/ ./ml/artifacts/
+COPY ml/ ./ml/
 
 RUN useradd -m -u 1000 aria
 USER aria
