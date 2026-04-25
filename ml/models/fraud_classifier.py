@@ -1,3 +1,8 @@
+# Remove from top of file:
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from __future__ import annotations
 
 import json
@@ -147,7 +152,8 @@ def train_fraud_classifier(X, y, experiment_name: str = "fraud-classifier", run_
         )
         final_model.fit(X, y, verbose=False)
         mlflow.xgboost.log_model(final_model, artifact_path="model")
-
+        import matplotlib.pyplot as plt
+        import seaborn as sns
         importance = pd.Series(
             final_model.feature_importances_,
             index=X.columns,
