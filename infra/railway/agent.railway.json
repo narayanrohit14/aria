@@ -1,0 +1,14 @@
+{
+  "name": "aria-agent",
+  "source": {
+    "type": "dockerfile",
+    "dockerfile": "infra/docker/Dockerfile.agent.prod"
+  },
+  "deploy": {
+    "startCommand": "python -m backend.agent.agent start"
+  },
+  "variables": {
+    "ARIA_ENV": "production",
+    "LOG_LEVEL": "INFO"
+  }
+}

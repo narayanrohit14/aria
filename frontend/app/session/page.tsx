@@ -1,10 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Room, RoomEvent, Track } from "livekit-client"
 
 import { ARIAOrb } from "@/components/orb/ARIAOrb"
 import { DTCCLogo } from "@/components/ui/DTCCLogo"
 import { RiskBadge } from "@/components/ui/RiskBadge"
+import { ariaApi } from "@/lib/api"
 import { useSubtitles } from "@/lib/ws"
 
 const phases = [
@@ -18,142 +20,100 @@ const phases = [
 
 const activePhase = "RISK ASSESSMENT"
 const introText =
-  "Good afternoon, Aadesh. ARIA is online. I am ready to support the audit risk and insights review across the seeded transaction portfolio."
-
-type SpeechRecognitionConstructor = new () => SpeechRecognition
-
-type SpeechRecognition = EventTarget & {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  start: () => void
-  stop: () => void
-  onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onend: (() => void) | null
-  onerror: (() => void) | null
-}
-
-type SpeechRecognitionEvent = {
-  resultIndex: number
-  results: {
-    length: number
-    [index: number]: {
-      isFinal: boolean
-      [index: number]: {
-        transcript: string
-      }
-    }
-  }
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: SpeechRecognitionConstructor
-    webkitSpeechRecognition?: SpeechRecognitionConstructor
-  }
-}
+  "Good afternoon, Aadesh. ARIA is joining the LiveKit audit room now."
 
 export default function SessionPage() {
-  const { subtitle, connected } = useSubtitles()
+  const [roomName] = useState(() => `aria-aadesh-${Date.now()}`)
+  const { subtitle, connected } = useSubtitles(roomName)
   const [localSubtitle, setLocalSubtitle] = useState(introText)
-  const [voiceStatus, setVoiceStatus] = useState("INITIALIZING")
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const [voiceStatus, setVoiceStatus] = useState("CONNECTING")
+  const [livekitConnected, setLivekitConnected] = useState(false)
+  const [needsGesture, setNeedsGesture] = useState(false)
+  const roomRef = useRef<Room | null>(null)
   const initializedRef = useRef(false)
+  const remoteAudioRef = useRef<HTMLDivElement | null>(null)
 
-  const speak = useCallback((text: string) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) {
+  const attachRemoteAudio = useCallback((track: Track) => {
+    if (track.kind !== Track.Kind.Audio || !remoteAudioRef.current) {
       return
     }
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 0.92
-    utterance.pitch = 0.82
-    utterance.volume = 0.95
-    window.speechSynthesis.speak(utterance)
+    const element = track.attach()
+    element.autoplay = true
+    element.dataset.livekitRemoteAudio = "true"
+    remoteAudioRef.current.appendChild(element)
   }, [])
 
-  const initializeSession = useCallback(async () => {
+  const initializeLiveKit = useCallback(async () => {
     if (initializedRef.current) {
+      try {
+        await roomRef.current?.startAudio()
+        setNeedsGesture(false)
+      } catch {
+        setNeedsGesture(true)
+      }
       return
     }
+
     initializedRef.current = true
+    setVoiceStatus("CREATING ROOM")
     setLocalSubtitle(introText)
-    speak(introText)
 
     try {
-      setVoiceStatus("REQUESTING MIC")
-      await navigator.mediaDevices?.getUserMedia({ audio: true })
-    } catch {
+      const session = await ariaApi.createSession(roomName)
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      })
+
+      room
+        .on(RoomEvent.Connected, () => {
+          setLivekitConnected(true)
+          setVoiceStatus("LIVEKIT CONNECTED")
+          setLocalSubtitle("LiveKit connected. ARIA is entering the room with the selected Cartesia voice.")
+        })
+        .on(RoomEvent.Disconnected, () => {
+          setLivekitConnected(false)
+          setVoiceStatus("DISCONNECTED")
+        })
+        .on(RoomEvent.TrackSubscribed, (track) => {
+          attachRemoteAudio(track)
+        })
+
+      roomRef.current = room
+      await room.connect(session.livekit_url, session.livekit_token)
+      await room.localParticipant.setMicrophoneEnabled(true)
+
+      try {
+        await room.startAudio()
+        setNeedsGesture(false)
+      } catch {
+        setNeedsGesture(true)
+        setLocalSubtitle("Click anywhere once to allow browser audio playback for ARIA.")
+      }
+
+      setVoiceStatus("LISTENING")
+    } catch (error) {
       initializedRef.current = false
-      setVoiceStatus("MIC PERMISSION NEEDED")
-      setLocalSubtitle("Good afternoon, Aadesh. Click anywhere on the interface to enable microphone access for the live ARIA session.")
-      return
+      setLivekitConnected(false)
+      setVoiceStatus("LIVEKIT ERROR")
+      setLocalSubtitle(
+        error instanceof Error
+          ? `LiveKit session failed: ${error.message}`
+          : "LiveKit session failed. Check Railway agent and LiveKit credentials.",
+      )
     }
-
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!Recognition) {
-      setVoiceStatus("SPEECH API UNAVAILABLE")
-      setLocalSubtitle("Good afternoon, Aadesh. Browser speech recognition is unavailable here, but the LiveKit subtitle stream remains ready.")
-      speak("Good afternoon, Aadesh. Browser speech recognition is unavailable here, but the LiveKit subtitle stream remains ready.")
-      return
-    }
-
-    const recognition = new Recognition()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = "en-US"
-    recognition.onresult = (event) => {
-      let transcript = ""
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        transcript += event.results[index][0].transcript
-      }
-      const cleanTranscript = transcript.trim()
-      if (!cleanTranscript) {
-        return
-      }
-      setLocalSubtitle(cleanTranscript)
-
-      const latest = event.results[event.results.length - 1]
-      if (latest?.isFinal) {
-        const response =
-          "Aadesh, the key demo signal is that the Railway portfolio contains fraud-positive cases and enough non-fraud context to demonstrate risk triage, audit findings, and control prioritization."
-        window.setTimeout(() => {
-          setLocalSubtitle(response)
-          speak(response)
-        }, 350)
-      }
-    }
-    recognition.onerror = () => {
-      setVoiceStatus("LISTENING DEGRADED")
-    }
-    recognition.onend = () => {
-      if (recognitionRef.current) {
-        recognition.start()
-      }
-    }
-
-    recognitionRef.current = recognition
-    recognition.start()
-    setVoiceStatus("LISTENING")
-    setLocalSubtitle("Listening, Aadesh. Ask ARIA about portfolio risk, fraud cases, or audit findings.")
-  }, [speak])
+  }, [attachRemoteAudio, roomName])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void initializeSession()
-    }, 700)
+    void initializeLiveKit()
     return () => {
-      window.clearTimeout(timer)
-      recognitionRef.current?.stop()
-      recognitionRef.current = null
-      window.speechSynthesis?.cancel()
+      roomRef.current?.disconnect()
+      roomRef.current = null
     }
-  }, [initializeSession])
+  }, [initializeLiveKit])
 
   const subtitleClasses = useMemo(() => {
-    return subtitle || localSubtitle
-      ? "opacity-100"
-      : "opacity-35"
+    return subtitle || localSubtitle ? "opacity-100" : "opacity-35"
   }, [subtitle, localSubtitle])
 
   const displaySubtitle = subtitle || localSubtitle
@@ -162,9 +122,10 @@ export default function SessionPage() {
     <div
       className="relative min-h-screen overflow-hidden bg-[#030a04] text-[#e0ffe8]"
       onClick={() => {
-        void initializeSession()
+        void initializeLiveKit()
       }}
     >
+      <div ref={remoteAudioRef} className="hidden" />
       <div
         className="pointer-events-none absolute inset-0 z-10"
         style={{
@@ -197,7 +158,7 @@ export default function SessionPage() {
               </div>
               <div>
                 <span className="text-[#e0ffe8]/55">AGENT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-                <span className="text-[#4bb875]">INITIALIZED</span>
+                <span className="text-[#4bb875]">{livekitConnected ? "LIVE" : "JOINING"}</span>
               </div>
               <div>
                 <span className="text-[#e0ffe8]/55">VOICE&nbsp;INTERFACE&nbsp;</span>
@@ -211,7 +172,7 @@ export default function SessionPage() {
             <div className="mt-1 h-px w-full bg-gradient-to-r from-transparent via-[#4bb875]/70 to-transparent" />
             <div className="mt-2 flex items-center justify-end gap-2 font-mono text-[10px] tracking-[0.16em] text-[#e0ffe8]/55">
               <span className={`h-2 w-2 rounded-full ${connected ? "bg-[#4bb875]" : "bg-[#ff5a5a]"}`} />
-              LINK
+              SUBTITLES
             </div>
           </div>
         </div>
@@ -222,16 +183,22 @@ export default function SessionPage() {
           PORTFOLIO RISK
         </div>
         <div className="font-mono text-sm tracking-[0.45em] text-[#4bb875] [text-shadow:0_0_12px_rgba(75,184,117,0.9)]">
-          LOW
+          HIGH
         </div>
       </div>
+
+      {needsGesture ? (
+        <div className="fixed left-1/2 top-[18%] z-40 -translate-x-1/2 rounded-full border border-[#4bb875]/50 bg-[#061006]/90 px-5 py-2 font-mono text-xs uppercase tracking-[0.18em] text-[#86efac] shadow-[0_0_24px_rgba(75,184,117,0.18)]">
+          Click once to enable ARIA audio
+        </div>
+      ) : null}
 
       <div className="relative z-0 flex min-h-screen flex-col">
         <div className="flex min-h-[70vh] flex-1 items-center justify-center px-8 pt-24">
           <div className="relative h-[70vh] w-full max-w-[1200px]">
             <ARIAOrb
               className="absolute inset-0 h-full w-full"
-              isSpeaking={voiceStatus === "LISTENING"}
+              isSpeaking={livekitConnected}
             />
           </div>
         </div>
@@ -240,7 +207,7 @@ export default function SessionPage() {
           <div
             className={`max-w-full font-[var(--font-rajdhani)] text-[20px] font-normal leading-[1.65] tracking-[0.5px] text-white [text-shadow:0_0_16px_rgba(75,184,117,0.9),0_0_36px_rgba(75,184,117,0.55)] transition-opacity duration-300 ${subtitleClasses}`}
           >
-            {displaySubtitle || "Awaiting live session transcript..."}
+            {displaySubtitle || "Awaiting ARIA LiveKit transcript..."}
           </div>
         </div>
       </div>
@@ -269,12 +236,12 @@ export default function SessionPage() {
 
         <div className="flex items-center gap-4 font-mono text-[10px] tracking-[0.16em] text-[#e0ffe8]/55">
           <RiskBadge
-            level="LOW"
+            level="HIGH"
             size="sm"
           />
           <div className="flex items-center gap-2">
-            <span className={`h-2.5 w-2.5 rounded-full ${connected ? "bg-[#4bb875]" : "bg-[#ff5a5a]"}`} />
-            WS CONNECTED
+            <span className={`h-2.5 w-2.5 rounded-full ${livekitConnected ? "bg-[#4bb875]" : "bg-[#ff5a5a]"}`} />
+            LIVEKIT {livekitConnected ? "CONNECTED" : "CONNECTING"}
           </div>
         </div>
       </footer>

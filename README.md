@@ -35,6 +35,35 @@ cd backend/api && uvicorn main:app --reload
 - `ml/` contains training and inference workflows
 - `infra/docker/` contains container and local environment assets
 
+## LiveKit Voice Agent Demo
+
+The real ARIA voice experience runs as three services:
+
+- `aria-api` creates LiveKit room tokens and exposes audit/data APIs.
+- `aria-frontend` joins a LiveKit room from `/session` and publishes microphone audio.
+- `aria-agent` runs `backend/agent/agent.py`, joins LiveKit rooms, and speaks with the selected Cartesia voice.
+
+Required Railway variables for `aria-agent`:
+
+```bash
+LIVEKIT_URL=
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+OPENAI_API_KEY=
+CARTESIA_API_KEY=
+ASSEMBLYAI_API_KEY=
+ARIA_API_URL=https://your-api-domain.up.railway.app
+```
+
+Required Railway variables for `aria-frontend`:
+
+```bash
+ARIA_API_URL=https://your-api-domain.up.railway.app
+NEXT_PUBLIC_WS_URL=wss://your-api-domain.up.railway.app
+```
+
+Do not set `NEXT_PUBLIC_API_URL` to `localhost` in Railway. If it is unset, the frontend uses its `/api/backend` proxy and `ARIA_API_URL`.
+
 ## Seeding Railway Postgres
 
 The full ARIA sample dataset is intentionally not committed to GitHub. The CSV

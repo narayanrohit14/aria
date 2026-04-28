@@ -85,6 +85,18 @@ services:
     depends_on:
       - api-prod
 
+  agent-prod:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.agent.prod
+    profiles: ["prod"]
+    env_file:
+      - .env
+    environment:
+      ARIA_API_URL: http://api-prod:8000
+    depends_on:
+      - api-prod
+
 volumes:
   postgres_data:
   redis_data:

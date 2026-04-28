@@ -20,14 +20,51 @@ from livekit.agents import AgentServer, AgentSession, Agent, room_io
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from aria_data_ingestion import load_audit_context, format_context_for_llm
+try:
+    from backend.data.aria_data_ingestion import load_audit_context, format_context_for_llm
+except ModuleNotFoundError:
+    from aria_data_ingestion import load_audit_context, format_context_for_llm
 
 load_dotenv(".env.local")
 ARIA_API_URL = os.getenv("ARIA_API_URL", "http://localhost:8000")
+CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121")
+
+def _load_audit_context_for_agent() -> tuple[dict, str]:
+    try:
+        context = load_audit_context()
+        return context, format_context_for_llm(context)
+    except Exception as exc:
+        print(f"[ARIA] Local audit context unavailable, using API summary fallback: {exc}")
+        try:
+            response = requests.get(f"{ARIA_API_URL}/api/v1/data/summary", timeout=10)
+            response.raise_for_status()
+            summary = response.json()
+        except Exception as api_exc:
+            print(f"[ARIA] API summary fallback unavailable: {api_exc}")
+            summary = {}
+
+        context = {
+            "transaction_summary": {
+                "risk_level": "HIGH" if summary.get("fraud_cases", 0) else "UNKNOWN",
+                "fraud_rate_pct": round(float(summary.get("fraud_rate", 0)) * 100, 3),
+                "failure_rate_pct": 0,
+            },
+            "seeded_dataset": summary,
+        }
+        context_str = (
+            "Railway seeded dataset summary: "
+            f"{summary.get('transactions', 0):,} representative transactions, "
+            f"{summary.get('fraud_cases', 0):,} fraud-positive labels, "
+            f"{summary.get('users', 0):,} users, "
+            f"{summary.get('cards', 0):,} cards. "
+            "Use this representative sample for demo risk analysis and be transparent "
+            "that the full raw population requires expanded database storage."
+        )
+        return context, context_str
+
 
 # Pre-load dataset once at startup
-AUDIT_CONTEXT = load_audit_context()
-AUDIT_CONTEXT_STR = format_context_for_llm(AUDIT_CONTEXT)
+AUDIT_CONTEXT, AUDIT_CONTEXT_STR = _load_audit_context_for_agent()
 
 tx_summary = AUDIT_CONTEXT.get("transaction_summary", {})
 RISK_LEVEL = tx_summary.get("risk_level", "UNKNOWN")
@@ -346,7 +383,7 @@ async def aria_session(ctx: agents.JobContext):
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
         llm="openai/gpt-4.1-mini",
-        tts="cartesia/sonic-3:71a7ad14-091c-4e8e-a314-022ece01c121",
+        tts=f"cartesia/sonic-3:{CARTESIA_VOICE_ID}",
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
     )

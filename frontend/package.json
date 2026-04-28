@@ -12,6 +12,7 @@
     "test:ci": "jest --ci --coverage"
   },
   "dependencies": {
+    "livekit-client": "^2.18.7",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18"
