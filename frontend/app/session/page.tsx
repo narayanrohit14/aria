@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { ARIAOrb } from "@/components/orb/ARIAOrb"
 import { DTCCLogo } from "@/components/ui/DTCCLogo"
@@ -17,15 +17,144 @@ const phases = [
 ]
 
 const activePhase = "RISK ASSESSMENT"
+const introText =
+  "ARIA initialized. I am ready to support the audit risk and insights review. Select start session and ask me about portfolio risk, fraud cases, or audit findings."
+
+type SpeechRecognitionConstructor = new () => SpeechRecognition
+
+type SpeechRecognition = EventTarget & {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  start: () => void
+  stop: () => void
+  onresult: ((event: SpeechRecognitionEvent) => void) | null
+  onend: (() => void) | null
+  onerror: (() => void) | null
+}
+
+type SpeechRecognitionEvent = {
+  resultIndex: number
+  results: {
+    length: number
+    [index: number]: {
+      isFinal: boolean
+      [index: number]: {
+        transcript: string
+      }
+    }
+  }
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor
+    webkitSpeechRecognition?: SpeechRecognitionConstructor
+  }
+}
 
 export default function SessionPage() {
   const { subtitle, connected } = useSubtitles()
+  const [localSubtitle, setLocalSubtitle] = useState(introText)
+  const [listening, setListening] = useState(false)
+  const [voiceStatus, setVoiceStatus] = useState("READY")
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+
+  const speak = (text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      return
+    }
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 0.92
+    utterance.pitch = 0.82
+    utterance.volume = 0.95
+    window.speechSynthesis.speak(utterance)
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      speak(introText)
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const startSession = async () => {
+    try {
+      setVoiceStatus("REQUESTING MIC")
+      await navigator.mediaDevices?.getUserMedia({ audio: true })
+    } catch {
+      setVoiceStatus("MIC BLOCKED")
+      setLocalSubtitle("Microphone permission is blocked. Enable microphone access and start the session again.")
+      return
+    }
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!Recognition) {
+      setVoiceStatus("SPEECH API UNAVAILABLE")
+      setLocalSubtitle("Browser speech recognition is unavailable. Chrome is recommended for the voice demo.")
+      speak("Browser speech recognition is unavailable. Chrome is recommended for the voice demo.")
+      return
+    }
+
+    const recognition = new Recognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = "en-US"
+    recognition.onresult = (event) => {
+      let transcript = ""
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        transcript += event.results[index][0].transcript
+      }
+      const cleanTranscript = transcript.trim()
+      if (!cleanTranscript) {
+        return
+      }
+      setLocalSubtitle(cleanTranscript)
+
+      const latest = event.results[event.results.length - 1]
+      if (latest?.isFinal) {
+        const response =
+          "Received. For this demo, I recommend reviewing high-risk fraud positives, validating transaction monitoring thresholds, and documenting remediation ownership."
+        window.setTimeout(() => {
+          setLocalSubtitle(response)
+          speak(response)
+        }, 350)
+      }
+    }
+    recognition.onerror = () => {
+      setVoiceStatus("LISTENING DEGRADED")
+    }
+    recognition.onend = () => {
+      if (recognitionRef.current) {
+        recognition.start()
+      }
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+    setListening(true)
+    setVoiceStatus("LISTENING")
+    setLocalSubtitle("Listening. Ask ARIA about portfolio risk, fraud cases, or audit findings.")
+    speak("Live audit session started. I am listening.")
+  }
+
+  const stopSession = () => {
+    recognitionRef.current?.stop()
+    recognitionRef.current = null
+    setListening(false)
+    setVoiceStatus("PAUSED")
+    setLocalSubtitle("Session paused.")
+    window.speechSynthesis?.cancel()
+  }
 
   const subtitleClasses = useMemo(() => {
-    return subtitle
+    return subtitle || localSubtitle
       ? "opacity-100"
       : "opacity-35"
-  }, [subtitle])
+  }, [subtitle, localSubtitle])
+
+  const displaySubtitle = subtitle || localSubtitle
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#030a04] text-[#e0ffe8]">
@@ -65,7 +194,7 @@ export default function SessionPage() {
               </div>
               <div>
                 <span className="text-[#e0ffe8]/55">VOICE&nbsp;INTERFACE&nbsp;</span>
-                <span className="text-[#4bb875]">ACTIVE</span>
+                <span className="text-[#4bb875]">{voiceStatus}</span>
               </div>
             </div>
           </div>
@@ -93,15 +222,31 @@ export default function SessionPage() {
       <div className="relative z-0 flex min-h-screen flex-col">
         <div className="flex min-h-[70vh] flex-1 items-center justify-center px-8 pt-24">
           <div className="relative h-[70vh] w-full max-w-[1200px]">
-            <ARIAOrb className="absolute inset-0 h-full w-full" />
+            <ARIAOrb
+              className="absolute inset-0 h-full w-full"
+              isSpeaking={voiceStatus === "LISTENING"}
+            />
           </div>
+        </div>
+
+        <div className="fixed bottom-[150px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-3">
+          <button
+            type="button"
+            onClick={listening ? stopSession : startSession}
+            className="rounded-full border border-[#4bb875]/70 bg-[#12331c]/80 px-5 py-2.5 font-mono text-xs uppercase tracking-[0.22em] text-[#86efac] shadow-[0_0_24px_rgba(75,184,117,0.18)] transition hover:bg-[#174525]"
+          >
+            {listening ? "Pause Session" : "Start ARIA"}
+          </button>
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#e0ffe8]/45">
+            {listening ? "Mic live" : "Mic standby"}
+          </span>
         </div>
 
         <div className="pointer-events-none fixed bottom-[60px] left-1/2 z-30 flex min-h-[72px] w-[66%] max-w-5xl -translate-x-1/2 items-center justify-center px-4 text-center">
           <div
             className={`max-w-full font-[var(--font-rajdhani)] text-[20px] font-normal leading-[1.65] tracking-[0.5px] text-white [text-shadow:0_0_16px_rgba(75,184,117,0.9),0_0_36px_rgba(75,184,117,0.55)] transition-opacity duration-300 ${subtitleClasses}`}
           >
-            {subtitle || "Awaiting live session transcript..."}
+            {displaySubtitle || "Awaiting live session transcript..."}
           </div>
         </div>
       </div>

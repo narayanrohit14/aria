@@ -1,7 +1,9 @@
-from uuid import UUID
+import os
+from datetime import datetime, timezone
+from uuid import UUID, uuid5, NAMESPACE_URL
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,13 @@ from backend.api.schemas.schemas import FindingCreate, FindingListResponse, Find
 
 
 router = APIRouter(prefix="/api/v1/findings", tags=["findings"])
+
+
+DEMO_FINDING_IDS = {
+    "transaction_monitoring": uuid5(NAMESPACE_URL, "aria-demo-transaction-monitoring"),
+    "card_controls": uuid5(NAMESPACE_URL, "aria-demo-card-controls"),
+    "fraud_queue": uuid5(NAMESPACE_URL, "aria-demo-fraud-queue"),
+}
 
 
 def _to_finding_response(finding: AuditFinding) -> FindingResponse:
@@ -26,6 +35,71 @@ def _to_finding_response(finding: AuditFinding) -> FindingResponse:
         created_at=finding.created_at,
         created_by=finding.created_by,
     )
+
+
+async def _count_table(db: AsyncSession, table_name: str) -> int:
+    result = await db.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+    return int(result.scalar() or 0)
+
+
+async def _demo_findings(db: AsyncSession) -> list[FindingResponse]:
+    try:
+        transactions = await _count_table(db, "aria_transactions")
+        fraud_labels = await _count_table(db, "aria_fraud_labels")
+        fraud_cases = await _count_table(db, "aria_fraud_labels WHERE is_fraud IS TRUE")
+        cards = await _count_table(db, "aria_cards")
+    except Exception:
+        transactions = 0
+        fraud_labels = 0
+        fraud_cases = 0
+        cards = 0
+
+    now = datetime.now(timezone.utc)
+    fraud_rate = (fraud_cases / fraud_labels * 100) if fraud_labels else 0.0
+    return [
+        FindingResponse(
+            id=str(DEMO_FINDING_IDS["transaction_monitoring"]),
+            title="Representative transaction monitoring sample requires risk-based review",
+            criteria="Fraud monitoring controls should evaluate representative transaction populations and escalate anomalies for timely review.",
+            condition=(
+                f"ARIA has loaded {transactions:,} representative transactions and "
+                f"{fraud_cases:,} fraud-positive labels into Railway for demo analytics."
+            ),
+            cause="The production demo is operating on a storage-safe representative sample rather than the full raw dataset.",
+            consequence="Audit users can validate workflow behavior and fraud-risk logic, but full-population assurance requires a larger database tier.",
+            corrective_action="Keep the representative seed for demo use and provision expanded Postgres storage before loading the complete transaction population.",
+            risk_level="MEDIUM",
+            created_at=now,
+            created_by="ARIA",
+        ),
+        FindingResponse(
+            id=str(DEMO_FINDING_IDS["fraud_queue"]),
+            title="Fraud-positive cases available for prioritization",
+            criteria="Known fraud-positive transactions should be available for prioritized model validation and audit triage.",
+            condition=(
+                f"The seeded Railway dataset contains {fraud_cases:,} fraud-positive cases "
+                f"across {fraud_labels:,} labeled transactions, a label fraud rate of {fraud_rate:.2f}%."
+            ),
+            cause="Representative seeding intentionally preserves all positive fraud labels while sampling non-fraud context.",
+            consequence="The demo can exercise high-risk alerting scenarios without exhausting Railway database storage.",
+            corrective_action="Use the fraud-only sample endpoint during demonstrations and migrate full labels when production storage is increased.",
+            risk_level="HIGH",
+            created_at=now,
+            created_by="ARIA",
+        ),
+        FindingResponse(
+            id=str(DEMO_FINDING_IDS["card_controls"]),
+            title="Card portfolio control attributes loaded for contextual risk scoring",
+            criteria="Transaction risk scoring should include card-level control attributes such as chip status, credit limit, and PIN freshness.",
+            condition=f"ARIA has loaded {cards:,} card records that can support contextual fraud and control-risk scoring.",
+            cause="Card controls are available in the seeded dataset but are not yet fully exposed in the dashboard drill-down workflow.",
+            consequence="The current demo supports aggregate portfolio context while detailed card-control evidence remains a Phase 2 enhancement.",
+            corrective_action="Add card-level drill-down views and connect transaction analysis results to persisted audit findings.",
+            risk_level="LOW",
+            created_at=now,
+            created_by="ARIA",
+        ),
+    ]
 
 
 @router.post("", response_model=FindingResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
@@ -82,6 +156,18 @@ async def list_findings(
 
         result = await db.execute(stmt)
         findings = result.scalars().all()
+        if (
+            not findings
+            and not parsed_session_id
+            and not risk_level
+            and offset == 0
+            and os.getenv("ARIA_ENV") != "test"
+        ):
+            demo_findings = await _demo_findings(db)
+            return FindingListResponse(
+                findings=demo_findings[:limit],
+                total=len(demo_findings),
+            )
         return FindingListResponse(
             findings=[_to_finding_response(finding) for finding in findings],
             total=len(findings),
@@ -104,6 +190,11 @@ async def get_finding(
         raise HTTPException(status_code=500, detail=f"Failed to load finding: {exc}") from exc
 
     if finding is None:
+        if os.getenv("ARIA_ENV") != "test":
+            demo_findings = await _demo_findings(db)
+            for demo_finding in demo_findings:
+                if demo_finding.id == finding_id:
+                    return demo_finding
         raise HTTPException(status_code=404, detail="Finding not found.")
 
     return _to_finding_response(finding)

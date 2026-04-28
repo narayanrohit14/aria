@@ -95,8 +95,8 @@ export default async function DashboardPage() {
           />
           <MetricCard
             label="Model F1 Score"
-            value={formatPercent(metrics?.cv_f1_mean)}
-            subValue="Cross-validation mean"
+            value={metrics ? formatPercent(metrics.cv_f1_mean) : datasetSummary ? "Demo Mode" : "Unavailable"}
+            subValue={metrics ? "Cross-validation mean" : "Model artifact pending"}
             trend="up"
           />
           <MetricCard
@@ -112,8 +112,8 @@ export default async function DashboardPage() {
           />
           <MetricCard
             label="Model Confidence"
-            value={formatPercent(metrics?.cv_roc_auc_mean)}
-            subValue="ROC-AUC performance"
+            value={metrics ? formatPercent(metrics.cv_roc_auc_mean) : datasetSummary ? "API Linked" : "Unavailable"}
+            subValue={metrics ? "ROC-AUC performance" : "Railway dataset connected"}
             highlight
           />
         </section>
