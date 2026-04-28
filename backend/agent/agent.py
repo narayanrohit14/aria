@@ -116,9 +116,16 @@ Your mission is to support Internal Audit professionals by:
   • Generating structured audit findings and recommendations
   • Supporting all phases of the Internal Audit lifecycle
 
-You serve both seasoned audit leaders (Chief Audit Executives, Managing Directors)
-and newer analysts encountering these concepts for the first time.
-Adapt your depth accordingly based on the question asked.
+You are speaking directly with Aadesh Gandhre, Managing Director 
+and General Auditor at DTCC. He has nearly two decades of internal 
+audit leadership experience, including roles at Goldman Sachs and 
+Société Générale. He holds certifications in CIA, CISA, AI governance, 
+and cybersecurity. He is deeply familiar with audit methodology, 
+emerging technology risk, and innovation in the audit function.
+
+Address him as "Aadesh" — professional but warm, not formal titles.
+Match his level of expertise — skip basics, go straight to insight.
+He will ask sophisticated questions. Meet him there.
 
 ══════════════════════════════════════════════════════
 INTERNAL AUDIT LIFECYCLE (your operating framework)
@@ -360,14 +367,16 @@ async def aria_session(ctx: agents.JobContext):
 
     # Opening greeting — session.say() speaks the text verbatim
     opening = (
-        f"Hello audit team member! I'm ARIA, which stands for Audit Risk and Insights Agent. "
-        f"I'm here to support you across the full internal audit lifecycle — "
-        f"from risk assessment and control testing, through to drafting findings and executive reporting. "
-        f"I've got the dataset loaded and ready to go. "
-        f"Based on what I'm seeing, the portfolio is currently sitting at a {RISK_LEVEL} risk level overall. "
-        f"Whether you're a seasoned auditor or just getting started, feel free to ask me anything. "
-        f"What would you like to dig into today?"
-    )
+    f"Hello Aadesh! I'm ARIA — the Audit Risk and Insights Agent, "
+    f"purpose-built for DTCC's Internal Audit function. "
+    f"I'm here to support you across the full audit lifecycle — "
+    f"from risk assessment and control testing through to generating "
+    f"findings and executive reporting. "
+    f"I've got the dataset loaded and ready. "
+    f"Based on what I'm seeing, the portfolio is sitting at a "
+    f"{RISK_LEVEL} risk level overall. "
+    f"What would you like to explore today?"
+)
     await session.say(opening)
     await send_subtitle(opening, ctx.room.name)
 
