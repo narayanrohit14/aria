@@ -34,7 +34,7 @@ function formatMeanStd(value?: number | null) {
   return `${value.toFixed(2)} ± --`
 }
 
-function derivePortfolioRisk(findings: Finding[]) {
+function derivePortfolioRisk(findings: Finding[], datasetSummary?: DatasetSummary | null) {
   if (findings.some((finding) => finding.risk_level === "HIGH")) {
     return "HIGH"
   }
@@ -43,6 +43,12 @@ function derivePortfolioRisk(findings: Finding[]) {
   }
   if (findings.some((finding) => finding.risk_level === "LOW")) {
     return "LOW"
+  }
+  if (datasetSummary?.fraud_cases) {
+    return "HIGH"
+  }
+  if (datasetSummary?.transactions) {
+    return "MEDIUM"
   }
   return "Unavailable"
 }
@@ -58,7 +64,7 @@ export default async function DashboardPage() {
 
   const findings = findingsResponse.findings
   const metrics = health?.model_metrics ?? null
-  const portfolioRisk = derivePortfolioRisk(findings)
+  const portfolioRisk = derivePortfolioRisk(findings, datasetSummary)
 
   return (
     <div className="relative min-h-[calc(100vh-56px)] px-6 py-8">
@@ -90,7 +96,7 @@ export default async function DashboardPage() {
                 </span>
               )
             }
-            subValue="Derived from current findings stream"
+            subValue={findings.length > 0 ? "Derived from current findings stream" : "Derived from seeded Railway fraud labels"}
             highlight={portfolioRisk === "HIGH"}
           />
           <MetricCard

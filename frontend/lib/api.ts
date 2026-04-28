@@ -8,17 +8,31 @@ import type {
   TransactionFeatures,
 } from "@/lib/types"
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window === "undefined"
-    ? process.env.ARIA_API_URL || process.env.API_INTERNAL_URL || "http://localhost:8000"
-    : "/api/backend")
+function getApiBase() {
+  const publicUrl = process.env.NEXT_PUBLIC_API_URL
+  const serverUrl = process.env.ARIA_API_URL || process.env.API_INTERNAL_URL
+
+  if (typeof window === "undefined") {
+    if (serverUrl) {
+      return serverUrl
+    }
+    if (publicUrl && !publicUrl.includes("localhost")) {
+      return publicUrl
+    }
+    return "http://localhost:8000"
+  }
+
+  if (publicUrl && !publicUrl.includes("localhost")) {
+    return publicUrl
+  }
+  return "/api/backend"
+}
 
 type CreateFindingPayload = Omit<Finding, "id" | "created_at" | "created_by">
 
 class ARIAApiClient {
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
-    const res = await globalThis.fetch(`${API_BASE}${path}`, {
+    const res = await globalThis.fetch(`${getApiBase()}${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options,
     })
@@ -66,7 +80,7 @@ class ARIAApiClient {
   }
 
   async deleteFinding(id: string): Promise<void> {
-    const res = await globalThis.fetch(`${API_BASE}/api/v1/findings/${id}`, {
+    const res = await globalThis.fetch(`${getApiBase()}/api/v1/findings/${id}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
     })
