@@ -1,13 +1,12 @@
 import os
+import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import create_engine
 
 from alembic import context
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from models.db import Base
 
 # this is the Alembic Config object, which provides
@@ -61,22 +60,26 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     # Railway injects DATABASE_URL — use it if available
-    db_url = (
-        os.getenv("DATABASE_URL") or
-        os.getenv("POSTGRES_URL") or
-        config.get_main_option("sqlalchemy.url")
-    )
+    db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or config.get_main_option("sqlalchemy.url")
 
     # asyncpg prefix breaks sync alembic — force psycopg2
     if db_url.startswith("postgresql+asyncpg://"):
         db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
 
     connectable = create_engine(db_url)
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata
+            target_metadata=target_metadata,
         )
         with context.begin_transaction():
             context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

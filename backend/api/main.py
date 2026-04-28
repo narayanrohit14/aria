@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from backend.api.database import engine
 from backend.api.routers.analyze import router as analyze_router
+from backend.api.routers.data import router as data_router
 from backend.api.routers.findings import router as findings_router
 from backend.api.routers.health import router as health_router
 from backend.api.routers.sessions import router as sessions_router
@@ -77,16 +78,36 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ARIA API", version="0.1.0", lifespan=lifespan, redirect_slashes=False)
 
+frontend_url = os.getenv("FRONTEND_URL")
+allowed_origins = ["http://localhost:3000"]
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.up\.railway\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+@app.get("/")
+async def root() -> dict:
+    return {
+        "service": "aria-api",
+        "version": "0.1.0",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health",
+        "data_summary": "/api/v1/data/summary",
+    }
+
+
 app.include_router(health_router)
 app.include_router(sessions_router)
 app.include_router(findings_router)
 app.include_router(analyze_router)
+app.include_router(data_router)
 app.include_router(ws_router)

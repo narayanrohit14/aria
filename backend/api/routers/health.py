@@ -52,7 +52,7 @@ async def health(db: AsyncSession = Depends(get_db)) -> HealthResponse:
 
     model_metrics = _load_model_metrics()
     model_loaded = MODEL_PATH.exists()
-    status = "ok" if database_connected and model_loaded else "degraded"
+    status = "ok" if database_connected else "degraded"
 
     return HealthResponse(
         status=status,

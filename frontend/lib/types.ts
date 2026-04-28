@@ -69,3 +69,14 @@ export interface SessionResponse {
   livekit_url: string
   risk_level: string
 }
+
+export interface DatasetSummary {
+  status: string
+  users: number
+  cards: number
+  transactions: number
+  mcc_codes: number
+  fraud_labels: number
+  fraud_cases: number
+  fraud_rate: number
+}

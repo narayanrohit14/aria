@@ -1,8 +1,12 @@
+# ruff: noqa: E402
+
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-os.environ["POSTGRES_URL"] = "sqlite+aiosqlite:///./test.db"
+TEST_DB_PATH = Path(__file__).resolve().parents[1] / "test.db"
+
+os.environ["POSTGRES_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH}"
 os.environ["ARIA_ENV"] = "test"
 os.environ["LIVEKIT_URL"] = "wss://test.livekit.cloud"
 os.environ["LIVEKIT_API_KEY"] = "test-key"
@@ -19,7 +23,6 @@ from backend.api.routers import analyze as analyze_router
 
 
 TEST_DATABASE_URL = os.environ["POSTGRES_URL"]
-TEST_DB_PATH = Path(__file__).resolve().parents[1] / "test.db"
 test_engine = create_async_engine(TEST_DATABASE_URL, future=True)
 TestSessionLocal = async_sessionmaker(bind=test_engine, expire_on_commit=False)
 

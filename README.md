@@ -34,3 +34,65 @@ cd backend/api && uvicorn main:app --reload
 - `backend/data/` contains data-access and ingestion code
 - `ml/` contains training and inference workflows
 - `infra/docker/` contains container and local environment assets
+
+## Seeding Railway Postgres
+
+The full ARIA sample dataset is intentionally not committed to GitHub. The CSV
+and JSON files under `backend/data/sample-data/` are too large for normal Git
+hosting and are ignored by `.gitignore`.
+
+Keep these files local:
+
+- `backend/data/sample-data/transactions_data.csv`
+- `backend/data/sample-data/cards_data.csv`
+- `backend/data/sample-data/users_data.csv`
+- `backend/data/sample-data/mcc_codes.json`
+- `backend/data/sample-data/train_fraud_labels.json`
+
+Set your Railway Postgres connection string locally:
+
+```bash
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
+```
+
+Then seed the database from the repo root:
+
+```bash
+python backend/scripts/seed_railway_postgres.py
+```
+
+For small Railway Postgres instances, use representative mode instead of the
+full 13M-row transaction load:
+
+```bash
+ARIA_SEED_MODE=representative \
+ARIA_SEED_REPRESENTATIVE_TX_LIMIT=250000 \
+ARIA_SEED_CSV_BATCH_SIZE=5000 \
+ARIA_SEED_FRAUD_BATCH_SIZE=25000 \
+python backend/scripts/seed_railway_postgres.py
+```
+
+Representative mode keeps all users, cards, MCC codes, all fraud-positive
+labeled transactions, and enough non-fraud context transactions to preserve
+useful deployed behavior without requiring the full database footprint.
+
+Verify row counts:
+
+```bash
+python backend/scripts/check_db_counts.py
+```
+
+If a partial remote seed fills the database, inspect size and optionally remove
+only the ARIA seed tables:
+
+```bash
+python backend/scripts/db_size_report.py
+
+ARIA_CONFIRM_RESET=yes python backend/scripts/reset_seed_tables.py
+```
+
+The seed script creates `aria_users`, `aria_cards`, `aria_transactions`,
+`aria_mcc_codes`, and `aria_fraud_labels`. CSV files are streamed through
+PostgreSQL `COPY`, and fraud labels are loaded in batches so the full dataset is
+not held in memory. The load is idempotent: rerunning the script will not
+duplicate rows.

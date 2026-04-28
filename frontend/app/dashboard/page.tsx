@@ -4,10 +4,12 @@ import { DTCCLogo } from "@/components/ui/DTCCLogo"
 import { MetricCard } from "@/components/ui/MetricCard"
 import { RiskBadge } from "@/components/ui/RiskBadge"
 import { ariaApi } from "@/lib/api"
-import type { Finding, FindingListResponse, HealthResponse } from "@/lib/types"
+import type { DatasetSummary, Finding, FindingListResponse, HealthResponse } from "@/lib/types"
 
 import { FindingsPanel } from "./_components/FindingsPanel"
 import { LiveClock } from "./_components/LiveClock"
+
+export const dynamic = "force-dynamic"
 
 const lifecyclePhases = [
   "PLANNING",
@@ -46,11 +48,12 @@ function derivePortfolioRisk(findings: Finding[]) {
 }
 
 export default async function DashboardPage() {
-  const [health, findingsResponse] = await Promise.all([
+  const [health, findingsResponse, datasetSummary] = await Promise.all([
     ariaApi.getHealth().catch(() => null as HealthResponse | null),
     ariaApi
       .getFindings({ limit: 6 })
       .catch(() => ({ findings: [], total: 0 }) as FindingListResponse),
+    ariaApi.getDatasetSummary().catch(() => null as DatasetSummary | null),
   ])
 
   const findings = findingsResponse.findings
@@ -101,15 +104,40 @@ export default async function DashboardPage() {
             value={
               typeof metrics?.n_fraud_cases === "number"
                 ? metrics.n_fraud_cases.toLocaleString()
+                : typeof datasetSummary?.fraud_cases === "number"
+                  ? datasetSummary.fraud_cases.toLocaleString()
                 : "Unavailable"
             }
-            subValue="Training dataset positives"
+            subValue={datasetSummary ? "Seeded Railway positives" : "Training dataset positives"}
           />
           <MetricCard
             label="Model Confidence"
             value={formatPercent(metrics?.cv_roc_auc_mean)}
             subValue="ROC-AUC performance"
             highlight
+          />
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            label="Railway Transactions"
+            value={datasetSummary?.transactions.toLocaleString() ?? "Unavailable"}
+            subValue="Seeded representative sample"
+          />
+          <MetricCard
+            label="Seeded Users"
+            value={datasetSummary?.users.toLocaleString() ?? "Unavailable"}
+            subValue="Customer records"
+          />
+          <MetricCard
+            label="Seeded Cards"
+            value={datasetSummary?.cards.toLocaleString() ?? "Unavailable"}
+            subValue="Payment instruments"
+          />
+          <MetricCard
+            label="Seeded Fraud Rate"
+            value={formatPercent(datasetSummary?.fraud_rate)}
+            subValue="Label coverage in Railway"
           />
         </section>
 

@@ -1,5 +1,6 @@
 import type {
   AnalysisResponse,
+  DatasetSummary,
   Finding,
   FindingListResponse,
   HealthResponse,
@@ -7,7 +8,11 @@ import type {
   TransactionFeatures,
 } from "@/lib/types"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window === "undefined"
+    ? process.env.ARIA_API_URL || process.env.API_INTERNAL_URL || "http://localhost:8000"
+    : "/api/backend")
 
 type CreateFindingPayload = Omit<Finding, "id" | "created_at" | "created_by">
 
@@ -89,6 +94,10 @@ class ARIAApiClient {
         room_name: roomName,
       }),
     })
+  }
+
+  async getDatasetSummary(): Promise<DatasetSummary> {
+    return this.fetch<DatasetSummary>("/api/v1/data/summary")
   }
 }
 

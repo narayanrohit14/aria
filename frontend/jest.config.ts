@@ -15,6 +15,8 @@ const config: Config = {
     ],
   },
   testMatch: ["**/__tests__/**/*.test.ts?(x)"],
+  modulePathIgnorePatterns: ["<rootDir>/.next/"],
+  watchPathIgnorePatterns: ["<rootDir>/.next/"],
 }
 
 export default config

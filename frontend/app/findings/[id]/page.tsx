@@ -8,6 +8,8 @@ import type { Finding } from "@/lib/types"
 
 import { DeleteFindingButton } from "./DeleteFindingButton"
 
+export const dynamic = "force-dynamic"
+
 type FindingDetailPageProps = {
   params: {
     id: string
