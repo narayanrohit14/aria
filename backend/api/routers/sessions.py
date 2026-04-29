@@ -16,6 +16,10 @@ from backend.api.schemas.schemas import SessionCreate, SessionResponse
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
+def utc_now_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post("/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
@@ -93,7 +97,7 @@ async def end_session(
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found.")
 
-        session.ended_at = datetime.now(timezone.utc)
+        session.ended_at = utc_now_naive()
         await db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid session ID.") from exc

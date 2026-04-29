@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # Support Alembic when run from backend/api/.
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class AuditSession(Base):
