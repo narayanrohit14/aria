@@ -20,7 +20,6 @@ from backend.api.routers.findings import router as findings_router
 from backend.api.routers.health import router as health_router
 from backend.api.routers.sessions import router as sessions_router
 from backend.api.routers.ws import router as ws_router
-from backend.data.aria_data_ingestion import load_audit_context
 
 
 ARTIFACTS_MODEL_PATH = (
@@ -61,12 +60,6 @@ async def lifespan(app: FastAPI):
 
     model_exists = os.path.exists(ARTIFACTS_MODEL_PATH)
     logger.info("Fraud model artifact %s", "found" if model_exists else "not found")
-
-    try:
-        load_audit_context()
-        logger.info("Audit context loaded")
-    except Exception as exc:
-        logger.warning("Audit context load failed: %s", exc)
 
     app.state.started_at = datetime.now(timezone.utc)
     logger.info("ARIA API ready")

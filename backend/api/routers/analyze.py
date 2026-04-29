@@ -1,14 +1,14 @@
 import json
-from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.database import get_db
 from backend.api.models.db import TransactionAnalysis
+from backend.api.routers.data import derive_risk_level
 from backend.api.schemas.schemas import AnalysisResponse, TransactionFeatures
-from backend.data.aria_data_ingestion import load_audit_context
 import sys
 from pathlib import Path
 
@@ -18,11 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "ml"))
 from models.fraud_classifier import load_fraud_classifier, predict_fraud
 
 router = APIRouter(prefix="/api/v1/analyze", tags=["analyze"])
-
-
-@lru_cache(maxsize=1)
-def _cached_audit_context():
-    return load_audit_context()
 
 
 def _fallback_predict_fraud(features: TransactionFeatures) -> dict:
@@ -112,9 +107,49 @@ async def analyze_transaction(
     )
 
 
+async def _count(db: AsyncSession, query: str) -> int:
+    result = await db.execute(text(query))
+    return int(result.scalar() or 0)
+
+
 @router.get("/portfolio/summary")
-async def portfolio_summary() -> dict:
+async def portfolio_summary(db: AsyncSession = Depends(get_db)) -> dict:
     try:
-        return _cached_audit_context()
+        users = await _count(db, "SELECT COUNT(*) FROM aria_users")
+        cards = await _count(db, "SELECT COUNT(*) FROM aria_cards")
+        transactions = await _count(db, "SELECT COUNT(*) FROM aria_transactions")
+        mcc_codes = await _count(db, "SELECT COUNT(*) FROM aria_mcc_codes")
+        fraud_labels = await _count(db, "SELECT COUNT(*) FROM aria_fraud_labels")
+        fraud_cases = await _count(db, "SELECT COUNT(*) FROM aria_fraud_labels WHERE is_fraud IS TRUE")
+        fraud_rate = fraud_cases / fraud_labels if fraud_labels else 0.0
+        risk_level = derive_risk_level(fraud_rate, fraud_cases, transactions)
+
+        return {
+            "overall_risk_level": risk_level,
+            "composite_risk_score": 75 if risk_level == "HIGH" else 40 if risk_level == "MEDIUM" else 0,
+            "transaction_summary": {
+                "total_transactions": transactions,
+                "flagged_fraud_count": fraud_cases,
+                "fraud_rate_pct": round(fraud_rate * 100, 3),
+                "risk_level": risk_level,
+            },
+            "data_coverage": {
+                "transactions_loaded": transactions,
+                "cards_loaded": cards,
+                "users_loaded": users,
+                "fraud_labels_loaded": fraud_labels,
+                "mcc_codes_loaded": mcc_codes,
+            },
+            "seeded_dataset": {
+                "users": users,
+                "cards": cards,
+                "transactions": transactions,
+                "mcc_codes": mcc_codes,
+                "fraud_labels": fraud_labels,
+                "fraud_cases": fraud_cases,
+                "fraud_rate": fraud_rate,
+                "risk_level": risk_level,
+            },
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load portfolio summary: {exc}") from exc
