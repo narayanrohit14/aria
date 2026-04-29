@@ -33,6 +33,7 @@ export default function SessionPage() {
   const [voiceStatus, setVoiceStatus] = useState("CONNECTING")
   const [livekitConnected, setLivekitConnected] = useState(false)
   const [needsGesture, setNeedsGesture] = useState(false)
+  const [portfolioRisk, setPortfolioRisk] = useState("UNKNOWN")
   const roomRef = useRef<Room | null>(null)
   const initializedRef = useRef(false)
   const remoteAudioRef = useRef<HTMLDivElement | null>(null)
@@ -134,6 +135,27 @@ export default function SessionPage() {
     }
   }, [initializeLiveKit])
 
+  useEffect(() => {
+    let cancelled = false
+
+    ariaApi
+      .getDatasetSummary()
+      .then((summary) => {
+        if (!cancelled && summary.risk_level) {
+          setPortfolioRisk(summary.risk_level)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPortfolioRisk("UNKNOWN")
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const subtitleClasses = useMemo(() => {
     return subtitle || localSubtitle ? "opacity-100" : "opacity-35"
   }, [subtitle, localSubtitle])
@@ -205,7 +227,7 @@ export default function SessionPage() {
           PORTFOLIO RISK
         </div>
         <div className="font-mono text-sm tracking-[0.45em] text-[#4bb875] [text-shadow:0_0_12px_rgba(75,184,117,0.9)]">
-          HIGH
+          {portfolioRisk}
         </div>
       </div>
 
@@ -258,7 +280,7 @@ export default function SessionPage() {
 
         <div className="flex items-center gap-4 font-mono text-[10px] tracking-[0.16em] text-[#e0ffe8]/55">
           <RiskBadge
-            level="HIGH"
+            level={portfolioRisk}
             size="sm"
           />
           <div className="flex items-center gap-2">

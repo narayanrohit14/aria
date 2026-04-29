@@ -72,6 +72,7 @@ export interface SessionResponse {
 
 export interface DatasetSummary {
   status: string
+  risk_level: string
   users: number
   cards: number
   transactions: number

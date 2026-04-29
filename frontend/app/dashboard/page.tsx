@@ -44,8 +44,8 @@ function derivePortfolioRisk(findings: Finding[], datasetSummary?: DatasetSummar
   if (findings.some((finding) => finding.risk_level === "LOW")) {
     return "LOW"
   }
-  if (datasetSummary?.fraud_cases) {
-    return "HIGH"
+  if (datasetSummary?.risk_level) {
+    return datasetSummary.risk_level
   }
   if (datasetSummary?.transactions) {
     return "MEDIUM"

@@ -8,6 +8,14 @@ from backend.api.database import get_db
 router = APIRouter(prefix="/api/v1/data", tags=["data"])
 
 
+def derive_risk_level(fraud_rate: float, fraud_cases: int, transactions: int) -> str:
+    if fraud_rate >= 0.02 or fraud_cases >= 100:
+        return "HIGH"
+    if fraud_rate > 0 or transactions > 0:
+        return "MEDIUM"
+    return "UNKNOWN"
+
+
 async def _scalar_int(db: AsyncSession, query: str) -> int:
     result = await db.execute(text(query))
     return int(result.scalar() or 0)
@@ -25,16 +33,19 @@ async def dataset_summary(db: AsyncSession = Depends(get_db)) -> dict:
             db,
             "SELECT COUNT(*) FROM aria_fraud_labels WHERE is_fraud IS TRUE",
         )
+        fraud_rate = fraud_cases / fraud_labels if fraud_labels else 0.0
+        risk_level = derive_risk_level(fraud_rate, fraud_cases, transactions)
 
         return {
             "status": "ok",
+            "risk_level": risk_level,
             "users": users,
             "cards": cards,
             "transactions": transactions,
             "mcc_codes": mcc_codes,
             "fraud_labels": fraud_labels,
             "fraud_cases": fraud_cases,
-            "fraud_rate": fraud_cases / fraud_labels if fraud_labels else 0.0,
+            "fraud_rate": fraud_rate,
         }
     except Exception as exc:
         raise HTTPException(

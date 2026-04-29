@@ -27,17 +27,62 @@ except ModuleNotFoundError:
 load_dotenv(".env.local")
 ARIA_API_URL = os.getenv("ARIA_API_URL", "http://localhost:8000")
 CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121")
+ARIA_AGENT_CONTEXT_SOURCE = os.getenv("ARIA_AGENT_CONTEXT_SOURCE", "api").lower()
+
+
+def _context_from_api_summary() -> tuple[dict, str]:
+    response = requests.get(f"{ARIA_API_URL}/api/v1/data/summary", timeout=10)
+    response.raise_for_status()
+    summary = response.json()
+    risk_level = summary.get("risk_level") or ("HIGH" if summary.get("fraud_cases", 0) else "UNKNOWN")
+    fraud_rate_pct = round(float(summary.get("fraud_rate", 0)) * 100, 3)
+
+    context = {
+        "overall_risk_level": risk_level,
+        "composite_risk_score": 75 if risk_level == "HIGH" else 40 if risk_level == "MEDIUM" else 0,
+        "transaction_summary": {
+            "risk_level": risk_level,
+            "fraud_rate_pct": fraud_rate_pct,
+            "flagged_fraud_count": int(summary.get("fraud_cases", 0) or 0),
+            "total_transactions": int(summary.get("transactions", 0) or 0),
+            "failure_rate_pct": 0,
+        },
+        "seeded_dataset": summary,
+        "data_coverage": {
+            "transactions_loaded": int(summary.get("transactions", 0) or 0),
+            "cards_loaded": int(summary.get("cards", 0) or 0),
+            "users_loaded": int(summary.get("users", 0) or 0),
+            "fraud_labels_loaded": int(summary.get("fraud_labels", 0) or 0),
+            "mcc_codes_loaded": int(summary.get("mcc_codes", 0) or 0),
+        },
+    }
+    context_str = (
+        "Railway seeded dataset summary: "
+        f"{summary.get('transactions', 0):,} representative transactions, "
+        f"{summary.get('fraud_cases', 0):,} fraud-positive labels, "
+        f"{summary.get('users', 0):,} users, "
+        f"{summary.get('cards', 0):,} cards, "
+        f"and a {fraud_rate_pct}% labeled fraud rate. "
+        f"Current demo portfolio risk level: {risk_level}. "
+        "Use this representative Railway sample as the source of truth for demo risk analysis."
+    )
+    return context, context_str
+
 
 def _load_audit_context_for_agent() -> tuple[dict, str]:
+    if ARIA_AGENT_CONTEXT_SOURCE != "local":
+        try:
+            return _context_from_api_summary()
+        except Exception as api_exc:
+            print(f"[ARIA] API summary unavailable, using local sample fallback: {api_exc}")
+
     try:
         context = load_audit_context()
         return context, format_context_for_llm(context)
     except Exception as exc:
         print(f"[ARIA] Local audit context unavailable, using API summary fallback: {exc}")
         try:
-            response = requests.get(f"{ARIA_API_URL}/api/v1/data/summary", timeout=10)
-            response.raise_for_status()
-            summary = response.json()
+            return _context_from_api_summary()
         except Exception as api_exc:
             print(f"[ARIA] API summary fallback unavailable: {api_exc}")
             summary = {}
