@@ -441,7 +441,9 @@ async def aria_session(ctx: agents.JobContext):
         room=ctx.room,
         agent=ARIAAssistant(),
         room_options=room_io.RoomOptions(
+            close_on_disconnect=False,
             audio_input=room_io.AudioInputOptions(
+                close_on_disconnect=False,
                 noise_cancellation=lambda params: (
                     noise_cancellation.BVCTelephony()
                     if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
@@ -466,14 +468,27 @@ async def aria_session(ctx: agents.JobContext):
     await session.say(opening)
     await send_subtitle(opening, ctx.room.name)
 
+    @session.on("user_state_changed")
+    def on_user_state_changed(event):
+        print(f"[ARIA] User state: {event.old_state} → {event.new_state}")
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(event):
+        print(f"[ARIA] Agent state: {event.old_state} → {event.new_state}")
+
+    @session.on("error")
+    def on_session_error(event):
+        print(f"[ARIA] Session error: {getattr(event, 'error', event)}")
+
     # Event handler for user transcriptions. LiveKit Agents v1.5 emits
     # "user_input_transcribed"; older prototypes used "transcription".
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(event):
         user_text = getattr(event, "transcript", "").strip()
         is_final = getattr(event, "is_final", False)
+        if user_text:
+            print(f"[ARIA] Transcript ({'final' if is_final else 'interim'}): {user_text}")
         if user_text and is_final:
-            print(f"[ARIA] User: {user_text}")
             asyncio.create_task(route_query(user_text, session))
 
     # Keep session alive

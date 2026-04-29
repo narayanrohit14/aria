@@ -75,21 +75,36 @@ export default function SessionPage() {
           setLivekitConnected(true)
           setVoiceStatus("LIVEKIT CONNECTED")
           setLocalSubtitle("LiveKit connected. ARIA is entering the room with the selected Cartesia voice.")
+          console.info("[ARIA session] LiveKit connected", { roomName })
         })
         .on(RoomEvent.Disconnected, () => {
           setLivekitConnected(false)
           setVoiceStatus("DISCONNECTED")
+          console.warn("[ARIA session] LiveKit disconnected")
         })
         .on(RoomEvent.TrackSubscribed, (track) => {
+          console.info("[ARIA session] remote track subscribed", {
+            kind: track.kind,
+            source: track.source,
+          })
           attachRemoteAudio(track)
         })
         .on(RoomEvent.LocalTrackPublished, (publication) => {
+          console.info("[ARIA session] local track published", {
+            kind: publication.kind,
+            source: publication.source,
+            trackSid: publication.trackSid,
+          })
           if (publication.kind === Track.Kind.Audio) {
             setVoiceStatus("MIC LIVE")
             setLocalSubtitle("Microphone is live. ARIA is listening.")
           }
         })
         .on(RoomEvent.LocalTrackUnpublished, (publication) => {
+          console.warn("[ARIA session] local track unpublished", {
+            kind: publication.kind,
+            source: publication.source,
+          })
           if (publication.kind === Track.Kind.Audio) {
             setVoiceStatus("MIC OFF")
             setLocalSubtitle("Microphone is not currently published.")
@@ -100,6 +115,12 @@ export default function SessionPage() {
       await room.connect(session.livekit_url, session.livekit_token)
       try {
         await room.localParticipant.setMicrophoneEnabled(true)
+        const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+        console.info("[ARIA session] microphone enable requested", {
+          isMicrophoneEnabled: room.localParticipant.isMicrophoneEnabled,
+          hasPublication: Boolean(micPublication),
+          isMuted: micPublication?.isMuted,
+        })
       } catch (error) {
         setVoiceStatus("MIC ERROR")
         setLocalSubtitle(`Microphone failed: ${getLiveKitErrorMessage(error)}`)

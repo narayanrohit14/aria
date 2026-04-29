@@ -108,11 +108,15 @@ class ARIAApiClient {
     })
   }
 
-  async createSession(roomName: string): Promise<SessionResponse> {
+  async createSession(
+    roomName: string,
+    participantIdentity = "aadesh",
+  ): Promise<SessionResponse> {
     return this.fetch<SessionResponse>("/api/v1/sessions", {
       method: "POST",
       body: JSON.stringify({
         room_name: roomName,
+        participant_identity: participantIdentity,
       }),
     })
   }
