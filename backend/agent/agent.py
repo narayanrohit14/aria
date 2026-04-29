@@ -18,7 +18,6 @@ import httpx
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, Agent, room_io
 from livekit.plugins import noise_cancellation, silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 try:
     from backend.data.aria_data_ingestion import load_audit_context, format_context_for_llm
@@ -385,7 +384,6 @@ async def aria_session(ctx: agents.JobContext):
         llm="openai/gpt-4.1-mini",
         tts=f"cartesia/sonic-3:{CARTESIA_VOICE_ID}",
         vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(),
     )
 
     await session.start(

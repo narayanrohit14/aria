@@ -37,7 +37,14 @@ class ARIAApiClient {
       ...options,
     })
     if (!res.ok) {
-      throw new Error(`API error ${res.status}: ${path}`)
+      let detail = ""
+      try {
+        const payload = await res.json()
+        detail = typeof payload?.detail === "string" ? ` — ${payload.detail}` : ""
+      } catch {
+        detail = ""
+      }
+      throw new Error(`API error ${res.status}: ${path}${detail}`)
     }
     return res.json() as Promise<T>
   }
