@@ -4,10 +4,15 @@ import { useEffect, useRef } from "react"
 
 type ARIAOrbProps = {
   isSpeaking?: boolean
+  audioStream?: MediaStream | null
   className?: string
 }
 
-export function ARIAOrb({ isSpeaking: speakingOverride, className }: ARIAOrbProps) {
+export function ARIAOrb({
+  isSpeaking: speakingOverride,
+  audioStream,
+  className,
+}: ARIAOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
@@ -30,9 +35,7 @@ export function ARIAOrb({ isSpeaking: speakingOverride, className }: ARIAOrbProp
     let animationFrameId = 0
     let audioContext: AudioContext | null = null
     let analyser: AnalyserNode | null = null
-    let mediaStream: MediaStream | null = null
     let audioData = new Uint8Array(128)
-    let isMounted = true
 
     const IDLE_COL = "rgba(75,184,117,"
     const SPEAK_COL = "rgba(255,80,80,"
@@ -212,20 +215,19 @@ export function ARIAOrb({ isSpeaking: speakingOverride, className }: ARIAOrbProp
 
     const setupAudio = async () => {
       try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        if (!isMounted) {
-          mediaStream.getTracks().forEach((track) => track.stop())
+        const stream = audioStream
+        if (!stream) {
           return
         }
 
         audioContext = new window.AudioContext()
-        const source = audioContext.createMediaStreamSource(mediaStream)
+        const source = audioContext.createMediaStreamSource(stream)
         analyser = audioContext.createAnalyser()
         analyser.fftSize = 256
         source.connect(analyser)
         audioData = new Uint8Array(analyser.frequencyBinCount)
       } catch (error) {
-        console.error("Microphone access denied:", error)
+        console.error("ARIA orb audio analyser unavailable:", error)
       }
     }
 
@@ -235,15 +237,13 @@ export function ARIAOrb({ isSpeaking: speakingOverride, className }: ARIAOrbProp
     window.addEventListener("resize", resizeCanvas)
 
     return () => {
-      isMounted = false
       window.removeEventListener("resize", resizeCanvas)
       window.cancelAnimationFrame(animationFrameId)
-      mediaStream?.getTracks().forEach((track) => track.stop())
       if (audioContext) {
         void audioContext.close()
       }
     }
-  }, [speakingOverride])
+  }, [audioStream, speakingOverride])
 
   return (
     <canvas

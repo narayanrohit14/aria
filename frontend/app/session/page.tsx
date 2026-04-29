@@ -1,7 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Room, RoomEvent, Track } from "livekit-client"
+import {
+  createLocalAudioTrack,
+  LocalAudioTrack,
+  Room,
+  RoomEvent,
+  Track,
+} from "livekit-client"
 
 import { ARIAOrb } from "@/components/orb/ARIAOrb"
 import { DTCCLogo } from "@/components/ui/DTCCLogo"
@@ -26,6 +32,22 @@ function getLiveKitErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown LiveKit error"
 }
 
+async function getPreferredMicrophoneDeviceId() {
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  const audioInputs = devices.filter((device) => device.kind === "audioinput")
+
+  const usableInputs = audioInputs.filter((device) => {
+    const label = device.label.toLowerCase()
+    return !/(iphone|ipad|phone|continuity)/i.test(label)
+  })
+
+  const preferred =
+    usableInputs.find((device) => /macbook|built-in|internal|default/i.test(device.label)) ??
+    usableInputs[0]
+
+  return preferred?.deviceId
+}
+
 export default function SessionPage() {
   const [roomName] = useState(() => `aria-aadesh-${Date.now()}`)
   const { subtitle, connected } = useSubtitles(roomName)
@@ -34,9 +56,11 @@ export default function SessionPage() {
   const [livekitConnected, setLivekitConnected] = useState(false)
   const [needsGesture, setNeedsGesture] = useState(false)
   const [portfolioRisk, setPortfolioRisk] = useState("UNKNOWN")
+  const [micStream, setMicStream] = useState<MediaStream | null>(null)
   const roomRef = useRef<Room | null>(null)
   const initializedRef = useRef(false)
   const remoteAudioRef = useRef<HTMLDivElement | null>(null)
+  const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
 
   const attachRemoteAudio = useCallback((track: Track) => {
     if (track.kind !== Track.Kind.Audio || !remoteAudioRef.current) {
@@ -114,16 +138,32 @@ export default function SessionPage() {
       roomRef.current = room
       await room.connect(session.livekit_url, session.livekit_token)
       try {
-        await room.localParticipant.setMicrophoneEnabled(true)
+        const preferredMicDeviceId = await getPreferredMicrophoneDeviceId()
+        const localAudioTrack = await createLocalAudioTrack({
+          deviceId: preferredMicDeviceId ? { exact: preferredMicDeviceId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        })
+
+        localAudioTrackRef.current = localAudioTrack
+        await room.localParticipant.publishTrack(localAudioTrack)
+        setMicStream(new MediaStream([localAudioTrack.mediaStreamTrack]))
+
         const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
         console.info("[ARIA session] microphone enable requested", {
           isMicrophoneEnabled: room.localParticipant.isMicrophoneEnabled,
           hasPublication: Boolean(micPublication),
           isMuted: micPublication?.isMuted,
+          deviceLabel: localAudioTrack.mediaStreamTrack.label,
         })
+        setVoiceStatus("MIC LIVE")
+        setLocalSubtitle(`Microphone live: ${localAudioTrack.mediaStreamTrack.label || "default input"}`)
       } catch (error) {
         setVoiceStatus("MIC ERROR")
-        setLocalSubtitle(`Microphone failed: ${getLiveKitErrorMessage(error)}`)
+        setLocalSubtitle(
+          `Microphone failed: ${getLiveKitErrorMessage(error)}. In browser site settings, select your MacBook built-in microphone instead of iPhone.`,
+        )
         throw error
       }
 
@@ -151,6 +191,9 @@ export default function SessionPage() {
   useEffect(() => {
     void initializeLiveKit()
     return () => {
+      localAudioTrackRef.current?.stop()
+      localAudioTrackRef.current = null
+      setMicStream(null)
       roomRef.current?.disconnect()
       roomRef.current = null
     }
@@ -263,7 +306,7 @@ export default function SessionPage() {
           <div className="relative h-[70vh] w-full max-w-[1200px]">
             <ARIAOrb
               className="absolute inset-0 h-full w-full"
-              isSpeaking={livekitConnected}
+              audioStream={micStream}
             />
           </div>
         </div>
