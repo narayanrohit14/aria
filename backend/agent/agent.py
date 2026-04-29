@@ -16,7 +16,7 @@ import asyncio
 import httpx
 
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io
+from livekit.agents import AgentServer, AgentSession, Agent, JobExecutorType, room_io
 from livekit.plugins import noise_cancellation, silero
 
 try:
@@ -372,7 +372,13 @@ class ARIAAssistant(Agent):
 # LIVEKIT SESSION
 # ─────────────────────────────────────────────
 
-server = AgentServer()
+server = AgentServer(
+    job_executor_type=JobExecutorType.THREAD,
+    load_threshold=0.95,
+    job_memory_warn_mb=1500,
+    num_idle_processes=0,
+    initialize_process_timeout=60,
+)
 
 
 @server.rtc_session()
