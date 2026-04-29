@@ -22,6 +22,10 @@ const activePhase = "RISK ASSESSMENT"
 const introText =
   "Good afternoon, Aadesh. ARIA is joining the LiveKit audit room now."
 
+function getLiveKitErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown LiveKit error"
+}
+
 export default function SessionPage() {
   const [roomName] = useState(() => `aria-aadesh-${Date.now()}`)
   const { subtitle, connected } = useSubtitles(roomName)
@@ -78,10 +82,28 @@ export default function SessionPage() {
         .on(RoomEvent.TrackSubscribed, (track) => {
           attachRemoteAudio(track)
         })
+        .on(RoomEvent.LocalTrackPublished, (publication) => {
+          if (publication.kind === Track.Kind.Audio) {
+            setVoiceStatus("MIC LIVE")
+            setLocalSubtitle("Microphone is live. ARIA is listening.")
+          }
+        })
+        .on(RoomEvent.LocalTrackUnpublished, (publication) => {
+          if (publication.kind === Track.Kind.Audio) {
+            setVoiceStatus("MIC OFF")
+            setLocalSubtitle("Microphone is not currently published.")
+          }
+        })
 
       roomRef.current = room
       await room.connect(session.livekit_url, session.livekit_token)
-      await room.localParticipant.setMicrophoneEnabled(true)
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true)
+      } catch (error) {
+        setVoiceStatus("MIC ERROR")
+        setLocalSubtitle(`Microphone failed: ${getLiveKitErrorMessage(error)}`)
+        throw error
+      }
 
       try {
         await room.startAudio()

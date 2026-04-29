@@ -421,20 +421,15 @@ async def aria_session(ctx: agents.JobContext):
     await session.say(opening)
     await send_subtitle(opening, ctx.room.name)
 
-    # Event handler for user transcriptions
-    @session.on("transcription")
-    def on_transcription(event):
-        user_text = getattr(event, "text", "")
-        if user_text:
+    # Event handler for user transcriptions. LiveKit Agents v1.5 emits
+    # "user_input_transcribed"; older prototypes used "transcription".
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(event):
+        user_text = getattr(event, "transcript", "").strip()
+        is_final = getattr(event, "is_final", False)
+        if user_text and is_final:
             print(f"[ARIA] User: {user_text}")
             asyncio.create_task(route_query(user_text, session))
-
-    # Optional: mirror agent speech directly to subtitle
-    @session.on("agent_speech")
-    def on_agent_speech(event):
-        speech_text = getattr(event, "text", "")
-        if speech_text:
-            asyncio.create_task(send_subtitle(speech_text, ctx.room.name))
 
     # Keep session alive
     await asyncio.Future()
