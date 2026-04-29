@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
-  createLocalAudioTrack,
-  LocalAudioTrack,
   Room,
   RoomEvent,
   Track,
@@ -60,7 +58,6 @@ export default function SessionPage() {
   const roomRef = useRef<Room | null>(null)
   const initializedRef = useRef(false)
   const remoteAudioRef = useRef<HTMLDivElement | null>(null)
-  const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
 
   const attachRemoteAudio = useCallback((track: Track) => {
     if (track.kind !== Track.Kind.Audio || !remoteAudioRef.current) {
@@ -139,26 +136,34 @@ export default function SessionPage() {
       await room.connect(session.livekit_url, session.livekit_token)
       try {
         const preferredMicDeviceId = await getPreferredMicrophoneDeviceId()
-        const localAudioTrack = await createLocalAudioTrack({
-          deviceId: preferredMicDeviceId ? { exact: preferredMicDeviceId } : undefined,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        })
+        const micPublication = await room.localParticipant.setMicrophoneEnabled(
+          true,
+          {
+            deviceId: preferredMicDeviceId ? { exact: preferredMicDeviceId } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          {
+            source: Track.Source.Microphone,
+            preConnectBuffer: true,
+          },
+        )
 
-        localAudioTrackRef.current = localAudioTrack
-        await room.localParticipant.publishTrack(localAudioTrack)
-        setMicStream(new MediaStream([localAudioTrack.mediaStreamTrack]))
+        const micTrack = micPublication?.audioTrack
+        if (micTrack?.mediaStreamTrack) {
+          setMicStream(new MediaStream([micTrack.mediaStreamTrack]))
+        }
 
-        const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
         console.info("[ARIA session] microphone enable requested", {
           isMicrophoneEnabled: room.localParticipant.isMicrophoneEnabled,
           hasPublication: Boolean(micPublication),
           isMuted: micPublication?.isMuted,
-          deviceLabel: localAudioTrack.mediaStreamTrack.label,
+          source: micPublication?.source,
+          deviceLabel: micTrack?.mediaStreamTrack.label,
         })
         setVoiceStatus("MIC LIVE")
-        setLocalSubtitle(`Microphone live: ${localAudioTrack.mediaStreamTrack.label || "default input"}`)
+        setLocalSubtitle(`Microphone live: ${micTrack?.mediaStreamTrack.label || "default input"}`)
       } catch (error) {
         setVoiceStatus("MIC ERROR")
         setLocalSubtitle(
@@ -191,8 +196,6 @@ export default function SessionPage() {
   useEffect(() => {
     void initializeLiveKit()
     return () => {
-      localAudioTrackRef.current?.stop()
-      localAudioTrackRef.current = null
       setMicStream(null)
       roomRef.current?.disconnect()
       roomRef.current = null
