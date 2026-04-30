@@ -7,23 +7,41 @@ import type {
   SessionResponse,
   TransactionFeatures,
 } from "@/lib/types"
+import {
+  getLocalApiFallback,
+  isProductionRuntime,
+  requireAbsoluteHttpUrl,
+} from "@/lib/config"
 
 function getApiBase() {
   const publicUrl = process.env.NEXT_PUBLIC_API_URL
   const serverUrl = process.env.ARIA_API_URL || process.env.API_INTERNAL_URL
+  const isProduction = isProductionRuntime()
 
   if (typeof window === "undefined") {
     if (serverUrl) {
-      return serverUrl
+      return requireAbsoluteHttpUrl(serverUrl, "ARIA_API_URL/API_INTERNAL_URL", {
+        allowLocalhost: !isProduction,
+      })
     }
-    if (publicUrl && !publicUrl.includes("localhost")) {
-      return publicUrl
+    if (publicUrl) {
+      return requireAbsoluteHttpUrl(publicUrl, "NEXT_PUBLIC_API_URL", {
+        allowLocalhost: !isProduction,
+      })
     }
-    return "http://localhost:8000"
+    if (isProduction) {
+      throw new Error("ARIA_API_URL or API_INTERNAL_URL is required in production.")
+    }
+    return getLocalApiFallback()
   }
 
-  if (publicUrl && !publicUrl.includes("localhost")) {
-    return publicUrl
+  if (publicUrl) {
+    return requireAbsoluteHttpUrl(publicUrl, "NEXT_PUBLIC_API_URL", {
+      allowLocalhost: !isProduction,
+    })
+  }
+  if (isProduction) {
+    throw new Error("NEXT_PUBLIC_API_URL is required in the production frontend.")
   }
   return "/api/backend"
 }

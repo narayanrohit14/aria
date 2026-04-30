@@ -14,9 +14,11 @@ from dotenv import load_dotenv
 import requests
 import asyncio
 import httpx
+import re
+import time
 
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, JobExecutorType, room_io
+from livekit.agents import AgentServer, AgentSession, Agent, JobExecutorType, StopResponse, room_io
 from livekit.plugins import noise_cancellation, silero
 
 try:
@@ -25,7 +27,24 @@ except ModuleNotFoundError:
     from aria_data_ingestion import load_audit_context, format_context_for_llm
 
 load_dotenv(".env.local")
-ARIA_API_URL = os.getenv("ARIA_API_URL", "http://localhost:8000")
+
+
+def _is_production() -> bool:
+    return os.getenv("ENVIRONMENT") == "production" or os.getenv("ARIA_ENV") == "production"
+
+
+def _aria_api_url() -> str:
+    url = os.getenv("ARIA_API_URL")
+    if not url:
+        if _is_production():
+            raise RuntimeError("ARIA_API_URL is required for the production voice agent.")
+        return "http://localhost:8000"
+    if _is_production() and ("localhost" in url or "127.0.0.1" in url):
+        raise RuntimeError("ARIA_API_URL must not point to localhost in production.")
+    return url.rstrip("/")
+
+
+ARIA_API_URL = _aria_api_url()
 CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121")
 ARIA_AGENT_CONTEXT_SOURCE = os.getenv("ARIA_AGENT_CONTEXT_SOURCE", "api").lower()
 
@@ -371,11 +390,12 @@ def _detect_intent(text: str) -> list[str]:
     return intents
 
 
-async def route_query(text: str, session: AgentSession):
-    """
-    Decides what additional context to inject before sending to the LLM.
-    All paths ultimately call session.generate_reply() so TTS fires normally.
-    """
+def _normalize_transcript(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def build_response_instructions(text: str) -> str:
+    """Build a prompt for the latest user utterance only."""
     intents = _detect_intent(text)
     extra_context = ""
 
@@ -388,20 +408,19 @@ async def route_query(text: str, session: AgentSession):
     if any(i in intents for i in ["data", "fraud", "settlement"]):
         extra_context += f"\n{AUDIT_CONTEXT_STR}\n"
 
-    # Build enriched prompt
     if extra_context:
-        prompt = (
+        return (
             f"The user asked: {text}\n\n"
             f"Additional real-time context to inform your response:\n"
             f"{extra_context}\n"
-            f"Respond as ARIA — analytical, structured, and audit-focused."
+            "Respond as ARIA — analytical, structured, audit-focused, and concise. "
+            "Prioritize this newest user request over any prior thread."
         )
-    else:
-        prompt = text
-
-    response = await session.generate_reply(instructions=prompt)
-    await send_subtitle(str(response))
-    return response
+    return (
+        f"The user asked: {text}\n\n"
+        "Respond as ARIA — analytical, structured, audit-focused, and concise. "
+        "Prioritize this newest user request over any prior thread."
+    )
 
 
 # ─────────────────────────────────────────────
@@ -411,6 +430,29 @@ async def route_query(text: str, session: AgentSession):
 class ARIAAssistant(Agent):
     def __init__(self) -> None:
         super().__init__(instructions=ARIA_SYSTEM_PROMPT)
+        self._recent_final_transcripts: dict[str, float] = {}
+        self._duplicate_transcript_window_seconds = 20.0
+
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        user_text = (new_message.text_content or "").strip()
+        normalized_text = _normalize_transcript(user_text)
+        if not normalized_text:
+            raise StopResponse()
+
+        now = time.monotonic()
+        for previous_text, seen_at in list(self._recent_final_transcripts.items()):
+            if now - seen_at > self._duplicate_transcript_window_seconds:
+                del self._recent_final_transcripts[previous_text]
+
+        if normalized_text in self._recent_final_transcripts:
+            print(f"[ARIA] Ignoring duplicate completed user turn: {user_text}")
+            raise StopResponse()
+
+        self._recent_final_transcripts[normalized_text] = now
+        turn_ctx.add_message(
+            role="system",
+            content=build_response_instructions(user_text),
+        )
 
 
 # ─────────────────────────────────────────────
@@ -435,6 +477,12 @@ async def aria_session(ctx: agents.JobContext):
         llm="openai/gpt-4.1-mini",
         tts=f"cartesia/sonic-3:{CARTESIA_VOICE_ID}",
         vad=silero.VAD.load(),
+        allow_interruptions=True,
+        min_interruption_duration=0.2,
+        min_interruption_words=1,
+        resume_false_interruption=False,
+        false_interruption_timeout=None,
+        discard_audio_if_uninterruptible=True,
     )
 
     await session.start(
@@ -464,7 +512,7 @@ async def aria_session(ctx: agents.JobContext):
     f"{RISK_LEVEL} risk level overall. "
     f"What would you like to explore today?"
 )
-    await session.say(opening)
+    await session.say(opening, allow_interruptions=True)
     await send_subtitle(opening, ctx.room.name)
 
     @session.on("user_state_changed")
@@ -487,8 +535,10 @@ async def aria_session(ctx: agents.JobContext):
         is_final = getattr(event, "is_final", False)
         if user_text:
             print(f"[ARIA] Transcript ({'final' if is_final else 'interim'}): {user_text}")
+        if user_text and not is_final:
+            session.interrupt(force=True)
         if user_text and is_final:
-            asyncio.create_task(route_query(user_text, session))
+            asyncio.create_task(send_subtitle(f"Aadesh: {user_text}", ctx.room.name))
 
     # Keep session alive
     await asyncio.Future()

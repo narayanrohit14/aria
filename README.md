@@ -53,16 +53,42 @@ OPENAI_API_KEY=
 CARTESIA_API_KEY=
 ASSEMBLYAI_API_KEY=
 ARIA_API_URL=https://your-api-domain.up.railway.app
+ARIA_AGENT_CONTEXT_SOURCE=api
 ```
 
 Required Railway variables for `aria-frontend`:
 
 ```bash
 ARIA_API_URL=https://your-api-domain.up.railway.app
+NEXT_PUBLIC_API_URL=https://your-api-domain.up.railway.app
 NEXT_PUBLIC_WS_URL=wss://your-api-domain.up.railway.app
 ```
 
-Do not set `NEXT_PUBLIC_API_URL` to `localhost` in Railway. If it is unset, the frontend uses its `/api/backend` proxy and `ARIA_API_URL`.
+Required Railway variables for `aria-api`:
+
+```bash
+DATABASE_URL=
+LIVEKIT_URL=wss://your-livekit-project.livekit.cloud
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+ENVIRONMENT=production
+ARIA_ENV=production
+FRONTEND_URL=https://your-frontend-domain.up.railway.app
+```
+
+Do not set any production URL variable to `localhost`. In production the
+frontend requires `NEXT_PUBLIC_API_URL`, the server-side proxy uses
+`ARIA_API_URL` or `API_INTERNAL_URL`, and subtitle websockets use the FastAPI
+backend websocket endpoint. LiveKit media is separate: `/api/v1/sessions`
+returns the `livekit_url` and token that the browser uses to join the LiveKit
+room.
+
+Run deployment diagnostics without printing secrets:
+
+```bash
+python backend/scripts/diagnose_deployment.py
+cd frontend && NODE_ENV=production npm run diagnose:env
+```
 
 ## Seeding Railway Postgres
 

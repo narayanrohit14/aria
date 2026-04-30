@@ -1,10 +1,30 @@
 import { NextRequest } from "next/server"
 
-const BACKEND_BASE =
-  process.env.ARIA_API_URL ||
-  process.env.API_INTERNAL_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:8000"
+import {
+  getLocalApiFallback,
+  isProductionRuntime,
+  requireAbsoluteHttpUrl,
+} from "@/lib/config"
+
+function getBackendBase() {
+  const isProduction = isProductionRuntime()
+  const configured =
+    process.env.ARIA_API_URL ||
+    process.env.API_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_API_URL
+
+  if (configured) {
+    return requireAbsoluteHttpUrl(configured, "ARIA_API_URL/API_INTERNAL_URL", {
+      allowLocalhost: !isProduction,
+    })
+  }
+
+  if (isProduction) {
+    throw new Error("ARIA_API_URL or API_INTERNAL_URL is required for the backend proxy.")
+  }
+
+  return getLocalApiFallback()
+}
 
 type RouteContext = {
   params: {
@@ -14,7 +34,7 @@ type RouteContext = {
 
 async function proxy(request: NextRequest, context: RouteContext) {
   const path = `/${context.params.path.join("/")}`
-  const target = new URL(path, BACKEND_BASE)
+  const target = new URL(path, getBackendBase())
   target.search = request.nextUrl.search
 
   const headers = new Headers(request.headers)

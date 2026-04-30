@@ -2,22 +2,39 @@
 
 import { useEffect, useRef, useState } from "react"
 
+import {
+  getLocalSubtitleWebSocketFallback,
+  httpUrlToWebSocketUrl,
+  isProductionRuntime,
+  requireAbsoluteHttpUrl,
+  requireAbsoluteWebSocketUrl,
+} from "@/lib/config"
+
 function getWebSocketBaseUrl() {
+  // This is the FastAPI subtitles websocket base, not the LiveKit Cloud URL.
+  // LiveKit media connects with the livekit_url returned by /api/v1/sessions.
   const configuredWsUrl = process.env.NEXT_PUBLIC_WS_URL
-  if (configuredWsUrl && !configuredWsUrl.includes("localhost")) {
-    return configuredWsUrl
+  const isProduction = isProductionRuntime()
+  if (configuredWsUrl) {
+    return requireAbsoluteWebSocketUrl(configuredWsUrl, "NEXT_PUBLIC_WS_URL", {
+      allowLocalhost: !isProduction,
+    })
   }
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
-  if (apiUrl && !apiUrl.includes("localhost")) {
-    return apiUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")
+  if (apiUrl) {
+    const normalizedApiUrl = requireAbsoluteHttpUrl(apiUrl, "NEXT_PUBLIC_API_URL", {
+      allowLocalhost: !isProduction,
+    })
+    return httpUrlToWebSocketUrl(normalizedApiUrl)
   }
 
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
-    return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`
+  if (isProduction) {
+    throw new Error(
+      "NEXT_PUBLIC_WS_URL or NEXT_PUBLIC_API_URL is required for production subtitles.",
+    )
   }
-
-  return "ws://localhost:8000"
+  return getLocalSubtitleWebSocketFallback()
 }
 
 export function useSubtitles(room: string = "default") {
@@ -37,7 +54,14 @@ export function useSubtitles(room: string = "default") {
         return
       }
 
-      const WS_URL = getWebSocketBaseUrl()
+      let WS_URL: string
+      try {
+        WS_URL = getWebSocketBaseUrl()
+      } catch (error) {
+        console.error("[ARIA subtitles] websocket configuration error", error)
+        setConnected(false)
+        return
+      }
       const ws = new WebSocket(`${WS_URL}/ws/subtitles/${room}`)
 
       ws.onopen = () => {

@@ -4,6 +4,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 
+import { ariaApi } from "@/lib/api"
+
 const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/session", label: "Session" },
@@ -20,12 +22,11 @@ export function Navbar() {
 
     const checkHealth = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-        const res = await fetch(`${base}/health`)
+        await ariaApi.getHealth()
         if (!active) {
           return
         }
-        setHealthy(res.ok)
+        setHealthy(true)
       } catch {
         if (active) {
           setHealthy(false)

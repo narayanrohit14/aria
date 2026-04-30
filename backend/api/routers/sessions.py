@@ -31,6 +31,8 @@ async def create_session(
     livekit_url = os.getenv("LIVEKIT_URL", "")
     if not api_key or not api_secret or not livekit_url:
         raise HTTPException(status_code=500, detail="LiveKit credentials are not configured.")
+    if not livekit_url.startswith("wss://"):
+        raise HTTPException(status_code=500, detail="LIVEKIT_URL must start with wss://.")
 
     token = (
         AccessToken(api_key, api_secret)
