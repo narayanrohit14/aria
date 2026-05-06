@@ -216,16 +216,17 @@ Your mission is to support Internal Audit professionals by:
   • Generating structured audit findings and recommendations
   • Supporting all phases of the Internal Audit lifecycle
 
-You are speaking directly with Aadesh Gandhre, Managing Director 
-and General Auditor at DTCC. He has nearly two decades of internal 
-audit leadership experience, including roles at Goldman Sachs and 
-Société Générale. He holds certifications in CIA, CISA, AI governance, 
-and cybersecurity. He is deeply familiar with audit methodology, 
-emerging technology risk, and innovation in the audit function.
+You are speaking directly with Rohit Narayan, a member of DTCC's
+Audit Team. Rohit operates at the intersection of internal audit,
+software development, and applied AI. Treat him as an Audit Analyst,
+Software Developer, AI enthusiast, and financial services risk
+assessment practitioner who can engage deeply on audit methodology,
+data analytics, model governance, and emerging technology risk.
 
-Address him as "Aadesh" — professional but warm, not formal titles.
-Match his level of expertise — skip basics, go straight to insight.
-He will ask sophisticated questions. Meet him there.
+Address him as "Rohit" — professional but warm, not formal titles.
+Assume he is comfortable with technical detail, but keep spoken answers
+concise and audit-relevant. He will often ask iterative questions while
+testing the demo, so respond only to the newest question he asks.
 
 ══════════════════════════════════════════════════════
 INTERNAL AUDIT LIFECYCLE (your operating framework)
@@ -335,6 +336,10 @@ ALWAYS
 • Connect findings to action — what does this mean, and what should happen next
 • Be direct about uncertainty rather than hedging everything
 • Sound confident but not infallible
+• If interrupted, discard the prior answer path immediately. Do not resume
+  the previous answer unless Rohit explicitly asks you to continue.
+• After answering, return to listening. Do not revisit or re-answer an older
+  question when there is no new user input.
 
 ══════════════════════════════════════════════════════
 CURRENT DATASET CONTEXT (loaded from sample data)
@@ -394,6 +399,24 @@ def _normalize_transcript(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
+SELF_ECHO_PATTERNS = {
+    "hello rohit",
+    "i m aria",
+    "audit risk and insights agent",
+    "purpose built for dtcc",
+    "internal audit function",
+    "dataset loaded and ready",
+    "portfolio is sitting at",
+    "risk level overall",
+    "what would you like to explore today",
+}
+
+
+def _is_self_echo_transcript(text: str) -> bool:
+    normalized = _normalize_transcript(text)
+    return any(pattern in normalized for pattern in SELF_ECHO_PATTERNS)
+
+
 def build_response_instructions(text: str) -> str:
     """Build a prompt for the latest user utterance only."""
     intents = _detect_intent(text)
@@ -414,12 +437,14 @@ def build_response_instructions(text: str) -> str:
             f"Additional real-time context to inform your response:\n"
             f"{extra_context}\n"
             "Respond as ARIA — analytical, structured, audit-focused, and concise. "
-            "Prioritize this newest user request over any prior thread."
+            "Answer only this newest user request. Do not continue, revisit, "
+            "or complete any prior interrupted response."
         )
     return (
         f"The user asked: {text}\n\n"
         "Respond as ARIA — analytical, structured, audit-focused, and concise. "
-        "Prioritize this newest user request over any prior thread."
+        "Answer only this newest user request. Do not continue, revisit, "
+        "or complete any prior interrupted response."
     )
 
 
@@ -438,6 +463,9 @@ class ARIAAssistant(Agent):
         normalized_text = _normalize_transcript(user_text)
         if not normalized_text:
             raise StopResponse()
+        if _is_self_echo_transcript(user_text):
+            print(f"[ARIA] Ignoring likely self-echo transcript: {user_text}")
+            raise StopResponse()
 
         now = time.monotonic()
         for previous_text, seen_at in list(self._recent_final_transcripts.items()):
@@ -449,10 +477,23 @@ class ARIAAssistant(Agent):
             raise StopResponse()
 
         self._recent_final_transcripts[normalized_text] = now
+        base_instruction = next(
+            (
+                item
+                for item in turn_ctx.items
+                if item.type == "message" and item.role in ("system", "developer")
+            ),
+            None,
+        )
+
+        # Voice demo behavior should be single-turn by default. This prevents
+        # interrupted assistant text or older user questions from being resumed.
+        turn_ctx.items = [item for item in (base_instruction,) if item is not None]
         turn_ctx.add_message(
             role="system",
             content=build_response_instructions(user_text),
         )
+        turn_ctx.items.append(new_message)
 
 
 # ─────────────────────────────────────────────
@@ -500,19 +541,19 @@ async def aria_session(ctx: agents.JobContext):
         ),
     )
 
-    # Opening greeting — session.say() speaks the text verbatim
+    # Opening greeting: keep it out of chat history so it cannot trigger loops.
     opening = (
-    f"Hello Aadesh! I'm ARIA — the Audit Risk and Insights Agent, "
-    f"purpose-built for DTCC's Internal Audit function. "
-    f"I'm here to support you across the full audit lifecycle — "
-    f"from risk assessment and control testing through to generating "
-    f"findings and executive reporting. "
-    f"I've got the dataset loaded and ready. "
-    f"Based on what I'm seeing, the portfolio is sitting at a "
-    f"{RISK_LEVEL} risk level overall. "
-    f"What would you like to explore today?"
-)
-    await session.say(opening, allow_interruptions=True)
+        f"Hello Rohit! I'm ARIA — the Audit Risk and Insights Agent, "
+        f"purpose-built for DTCC's Internal Audit function. "
+        f"I'm here to support you across the full audit lifecycle — "
+        f"from risk assessment and control testing through to generating "
+        f"findings and executive reporting. "
+        f"I've got the dataset loaded and ready. "
+        f"Based on what I'm seeing, the portfolio is sitting at a "
+        f"{RISK_LEVEL} risk level overall. "
+        f"What would you like to explore today?"
+    )
+    await session.say(opening, allow_interruptions=True, add_to_chat_ctx=False)
     await send_subtitle(opening, ctx.room.name)
 
     @session.on("user_state_changed")
@@ -538,7 +579,7 @@ async def aria_session(ctx: agents.JobContext):
         if user_text and not is_final:
             session.interrupt(force=True)
         if user_text and is_final:
-            asyncio.create_task(send_subtitle(f"Aadesh: {user_text}", ctx.room.name))
+            asyncio.create_task(send_subtitle(f"Rohit: {user_text}", ctx.room.name))
 
     # Keep session alive
     await asyncio.Future()

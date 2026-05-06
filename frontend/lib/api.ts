@@ -128,7 +128,7 @@ class ARIAApiClient {
 
   async createSession(
     roomName: string,
-    participantIdentity = "aadesh",
+    participantIdentity = "rohit-narayan",
   ): Promise<SessionResponse> {
     return this.fetch<SessionResponse>("/api/v1/sessions", {
       method: "POST",

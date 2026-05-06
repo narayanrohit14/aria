@@ -24,7 +24,7 @@ const phases = [
 
 const activePhase = "RISK ASSESSMENT"
 const introText =
-  "Good afternoon, Aadesh. ARIA is joining the LiveKit audit room now."
+  "Good afternoon, Rohit. ARIA is joining the LiveKit audit room now."
 
 function getLiveKitErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown LiveKit error"
@@ -47,7 +47,7 @@ async function getPreferredMicrophoneDeviceId() {
 }
 
 export default function SessionPage() {
-  const [roomName] = useState(() => `aria-aadesh-${Date.now()}`)
+  const [roomName] = useState(() => `aria-rohit-${Date.now()}`)
   const { subtitle, connected } = useSubtitles(roomName)
   const [localSubtitle, setLocalSubtitle] = useState(introText)
   const [voiceStatus, setVoiceStatus] = useState("CONNECTING")
